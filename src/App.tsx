@@ -147,7 +147,7 @@ const LEVEL_SYSTEM = {
 
 const THEMES = {
   purple: {
-    name: '이플리 퍼플',
+    name: '이플레이 퍼플',
     primary: 'from-purple-500 to-pink-500',
     secondary: 'from-purple-100 to-pink-100',
     accent: 'purple-500',
@@ -1076,7 +1076,7 @@ ${userMessages}
       <div className="bg-white rounded-2xl shadow-xl p-8 w-96">
         <div className="text-center mb-6">
           <div className="text-4xl mb-2">🎵</div>
-          <h1 className={`text-2xl font-bold text-${getCurrentTheme().accent.split('-')[0]}-800`}>이플리</h1>
+          <h1 className={`text-2xl font-bold text-${getCurrentTheme().accent.split('-')[0]}-800`}>EPLAY</h1>
           <p className={`text-${getCurrentTheme().accent.split('-')[0]}-600`}>감정기반 음악 추천</p>
         </div>
 
