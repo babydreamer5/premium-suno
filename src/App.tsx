@@ -65,6 +65,14 @@ interface AppSettings {
 const APP_PASSWORD = "2752";
 const MAX_FREE_TOKENS = 100000;
 
+// huntrix 곡 목록
+const HUNTRIX_SONGS = [
+  "soda pop",
+  "your idol",
+  "golden",
+  "take down"
+];
+
 // 10대 취향에 맞춘 음악 장르 - 검색 키워드 최적화
 const MUSIC_GENRES = {
   teenbeats: {
@@ -213,6 +221,8 @@ const App: React.FC = () => {
   const [conversationCount, setConversationCount] = useState(0);
   const [usedMusicIds, setUsedMusicIds] = useState<Set<string>>(new Set());
   const [spotifyToken, setSpotifyToken] = useState<string | null>(null);
+  const [huntrixSongIndex, setHuntrixSongIndex] = useState(0);
+  const [huntrixRecommendations, setHuntrixRecommendations] = useState(0);
 
   // API 키 설정 - 환경변수에서만 가져오기
   const OPENAI_API_KEY = process.env.REACT_APP_OPENAI_API_KEY;
@@ -232,6 +242,8 @@ const App: React.FC = () => {
         const savedPersonalMusic = localStorage.getItem('personalMusic');
         const savedSettings = localStorage.getItem('appSettings');
         const savedUsedMusicIds = localStorage.getItem('usedMusicIds');
+        const savedHuntrixIndex = localStorage.getItem('huntrixSongIndex');
+        const savedHuntrixCount = localStorage.getItem('huntrixRecommendations');
 
         if (savedEntries) setDiaryEntries(JSON.parse(savedEntries));
         if (savedProgress) setUserProgress(JSON.parse(savedProgress));
@@ -244,6 +256,8 @@ const App: React.FC = () => {
           const parsedIds = JSON.parse(savedUsedMusicIds);
           setUsedMusicIds(new Set(Array.isArray(parsedIds) ? parsedIds : []));
         }
+        if (savedHuntrixIndex) setHuntrixSongIndex(JSON.parse(savedHuntrixIndex));
+        if (savedHuntrixCount) setHuntrixRecommendations(JSON.parse(savedHuntrixCount));
       } catch (error) {
         console.error('데이터 로드 오류:', error);
       }
@@ -264,10 +278,12 @@ const App: React.FC = () => {
       localStorage.setItem('personalMusic', JSON.stringify(personalMusic));
       localStorage.setItem('appSettings', JSON.stringify(appSettings));
       localStorage.setItem('usedMusicIds', JSON.stringify(Array.from(usedMusicIds)));
+      localStorage.setItem('huntrixSongIndex', JSON.stringify(huntrixSongIndex));
+      localStorage.setItem('huntrixRecommendations', JSON.stringify(huntrixRecommendations));
     } catch (error) {
       console.error('데이터 저장 오류:', error);
     }
-  }, [diaryEntries, userProgress, isAuthenticated, tokenUsage, trashEntries, personalMusic, appSettings, usedMusicIds]);
+  }, [diaryEntries, userProgress, isAuthenticated, tokenUsage, trashEntries, personalMusic, appSettings, usedMusicIds, huntrixSongIndex, huntrixRecommendations]);
 
   // Spotify 토큰 획득
   const getSpotifyToken = useCallback(async () => {
@@ -633,6 +649,14 @@ const App: React.FC = () => {
     });
   };
 
+  // huntrix 곡 추천 로직
+  const getNextHuntrixSong = () => {
+    const currentSong = HUNTRIX_SONGS[huntrixSongIndex];
+    setHuntrixSongIndex((huntrixSongIndex + 1) % HUNTRIX_SONGS.length);
+    setHuntrixRecommendations(huntrixRecommendations + 1);
+    return currentSong;
+  };
+
   // AI 응답 생성
   const getAIResponse = async (userMessage: string, conversationHistory: ChatMessage[]) => {
     const conversationNum = conversationCount + 1;
@@ -655,10 +679,10 @@ const App: React.FC = () => {
 1. 첫 번째 대화: 친근하게 인사하고 오늘 하루에 대해 묻기
 2. 두 번째 대화: 사용자 이야기에 공감하고 추가 질문하기
 3. 세 번째 대화부터: 자연스럽게 음악 추천 제안하기
-4. 음악 요청이 있으면: huntrix, 로제, 제니 같은 아티스트의 곡을 추천하되, "[MUSIC_SEARCH: 곡명 - 아티스트]" 형태로 끝에 추가
+4. 음악 요청이 있으면: huntrix 곡을 우선 추천하되, "[MUSIC_SEARCH: 곡명 - 아티스트]" 형태로 끝에 추가
 
 추천 우선순위 음악 (2025년 기준):
-- huntrix의 최신곡들
+- huntrix의 최신곡들 (soda pop, your idol, golden, take down)
 - 로제(Rose)의 APT, On The Ground 등
 - 제니(Jennie)의 솔로곡들
 - 지드래곤(G-Dragon)의 인기곡들
@@ -671,7 +695,8 @@ const App: React.FC = () => {
 현재 상황: ${conversationNum <= 2 ? '아직 음악 추천 단계가 아님. 대화를 더 나누기' : '음악 추천을 자연스럽게 제안할 수 있는 단계'}`;
 
     if (hasMusicRequest) {
-      systemPrompt += `\n\n음악 요청 감지: 사용자가 음악을 원하므로 huntrix, 로제, 제니 중에서 구체적인 곡을 추천하고 "[MUSIC_SEARCH: 곡명 - 아티스트]" 형식으로 검색어를 포함해주세요.`;
+      const nextHuntrixSong = getNextHuntrixSong();
+      systemPrompt += `\n\n음악 요청 감지: 사용자가 음악을 원하므로 huntrix의 "${nextHuntrixSong}"를 추천하고 "[MUSIC_SEARCH: ${nextHuntrixSong} - huntrix]" 형식으로 검색어를 포함해주세요.`;
     }
 
     const messages = conversationHistory.slice(-5).map(msg => ({
@@ -686,8 +711,22 @@ const App: React.FC = () => {
     // 음악 검색 요청이 포함되어 있는지 확인
     const musicSearchMatch = aiResponse.match(/\[MUSIC_SEARCH: ([^\]]+)\]/);
     if (musicSearchMatch) {
-      // 항상 huntrix를 검색하도록 변경
-      const searchQuery = 'huntrix';
+      let searchQuery = 'huntrix';
+      
+      // huntrix 4곡을 모두 추천했으면 다른 아티스트 곡도 추천
+      if (huntrixRecommendations >= 4) {
+        const originalQuery = musicSearchMatch[1];
+        if (originalQuery.includes('로제') || originalQuery.includes('Rose')) {
+          searchQuery = 'rose apt';
+        } else if (originalQuery.includes('제니') || originalQuery.includes('Jennie')) {
+          searchQuery = 'jennie solo';
+        } else if (originalQuery.includes('지드래곤') || originalQuery.includes('G-Dragon')) {
+          searchQuery = 'g-dragon power';
+        } else {
+          searchQuery = 'huntrix';
+        }
+      }
+      
       const cleanResponse = aiResponse.replace(/\[MUSIC_SEARCH: [^\]]+\]/, '').trim();
       
       try {
@@ -715,7 +754,12 @@ const App: React.FC = () => {
         summary: '오늘도 감정을 나누며 이야기를 해봤어요',
         keywords: ['#감정나눔'],
         recommendedEmotions: ['평온', '만족', '편안'],
-        actionItems: ['오늘도 고생 많았어요', '충분한 휴식을 취하세요'],
+        actionItems: [
+          '오늘도 고생 많았어요', 
+          '충분한 휴식을 취하세요',
+          '물을 충분히 마시며 몸을 돌보세요',
+          '좋아하는 음악으로 하루를 마무리해보세요'
+        ],
       };
     }
 
@@ -731,13 +775,17 @@ ${userMessages}
 1. 오늘 있었던 일을 1-2줄로 요약 (해요체로 작성, 감정과 상황 중심)
 2. 대화에서 느껴진 감정 키워드 5개 추출 (예: #스트레스, #행복, #피곤함 등)
 3. AI가 대화에서 분석한 세부 감정 5개 추천 (예: 행복, 걱정, 설렘, 피곤, 만족 등)
-4. 현재 상황에 맞는 실용적인 액션 아이템 2개 제안
+4. 현재 상황에 맞는 액션 아이템 4개 제안:
+   - 첫 번째: 감정 관리나 스트레스 해소 관련 조언
+   - 두 번째: 일상 생활 개선을 위한 실용적 조언
+   - 세 번째: 실제로 도움이 되는 구체적이고 실행 가능한 조언
+   - 네 번째: 음악이나 문화 생활 관련 추천
 
 응답 형식:
 요약: [1-2줄 요약 - 해요체]
 감정키워드: #키워드1, #키워드2, #키워드3, #키워드4, #키워드5
 추천감정: 감정1, 감정2, 감정3, 감정4, 감정5
-액션아이템: 아이템1 | 아이템2`;
+액션아이템: 아이템1 | 아이템2 | 아이템3 | 아이템4`;
 
     try {
       const result = await callOpenAI([], systemPrompt);
@@ -769,7 +817,7 @@ ${userMessages}
         summary: summary || '오늘의 감정과 상황을 나누었어요',
         keywords: keywords.slice(0, 5),
         recommendedEmotions: recommendedEmotions.slice(0, 5),
-        actionItems: actionItems.slice(0, 2)
+        actionItems: actionItems.slice(0, 4)
       };
     } catch (error) {
       console.error('대화 요약 생성 오류:', error);
@@ -777,7 +825,12 @@ ${userMessages}
         summary: '대화 요약을 생성하는 중에 문제가 발생했어요',
         keywords: ['#감정나눔'],
         recommendedEmotions: ['평온', '만족'],
-        actionItems: ['음악으로 마음을 달래보세요', '충분한 휴식을 취하세요']
+        actionItems: [
+          '음악으로 마음을 달래보세요', 
+          '충분한 휴식을 취하세요',
+          '따뜻한 차 한 잔으로 마음을 진정시켜보세요',
+          'huntrix의 음악을 들으며 하루를 마무리해보세요'
+        ]
       };
     }
   };
@@ -998,880 +1051,690 @@ ${userMessages}
 
   // 감정 선택 함수
   const handleEmotionSelect = (emotion: string) => {
-    setSelectedEmotions(prev => {
-      if (prev.includes(emotion)) {
-        // 이미 선택된 감정이면 제거
-        return prev.filter(e => e !== emotion);
-      } else if (prev.length < 2) {
-        // 2개 미만이면 추가
-        return [...prev, emotion];
+    if (selectedEmotions.includes(emotion)) {
+      setSelectedEmotions(prev => prev.filter(e => e !== emotion));
+    } else {
+      setSelectedEmotions(prev => [...prev, emotion]);
+    }
+  };
+
+  // 캘린더 관련 함수들
+  const getDaysInMonth = (date: Date) => {
+    const year = date.getFullYear();
+    const month = date.getMonth();
+    const firstDay = new Date(year, month, 1);
+    const lastDay = new Date(year, month + 1, 0);
+    const days = [];
+    
+    // 첫 주 빈 공간
+    for (let i = 0; i < firstDay.getDay(); i++) {
+      days.push(null);
+    }
+    
+    // 날짜들
+    for (let i = 1; i <= lastDay.getDate(); i++) {
+      days.push(new Date(year, month, i));
+    }
+    
+    return days;
+  };
+
+  const getEntriesForDate = (date: Date) => {
+    const dateStr = formatDate(date);
+    return diaryEntries.filter(entry => entry.date === dateStr);
+  };
+
+  const changeMonth = (direction: 'prev' | 'next') => {
+    setCurrentCalendarMonth(prev => {
+      const newMonth = new Date(prev);
+      if (direction === 'prev') {
+        newMonth.setMonth(prev.getMonth() - 1);
       } else {
-        // 2개가 이미 선택되었으면 첫 번째를 제거하고 새로운 것 추가
-        return [prev[1], emotion];
+        newMonth.setMonth(prev.getMonth() + 1);
       }
+      return newMonth;
     });
   };
 
-  // AI 이름 변경 함수
-  const handleAINameChange = (name: string) => {
-    setAppSettings(prev => ({ ...prev, aiName: name }));
-  };
-
-  // 컴포넌트 렌더링 함수들
-  const getCurrentTheme = () => THEMES[appSettings.theme];
-
-  const renderTokenBar = () => {
-    const usageRatio = Math.min(tokenUsage / MAX_FREE_TOKENS, 1.0);
-    const remaining = Math.max(0, MAX_FREE_TOKENS - tokenUsage);
-
-    let status = '충분해요';
-
-    if (usageRatio >= 0.95) {
-      status = '조금 부족해요';
-    } else if (usageRatio >= 0.5) {
-      status = '적당해요';
-    }
-
+  // 렌더링 시작
+  if (!isAuthenticated && currentStep === 'login') {
     return (
-      <div className={`bg-gradient-to-r ${getCurrentTheme().secondary} rounded-lg p-4 mb-4 border border-${getCurrentTheme().accent.split('-')[0]}-200`}>
-        <div className="flex justify-between items-center mb-2">
-          <span className={`text-sm font-semibold text-${getCurrentTheme().accent.split('-')[0]}-800`}>AI와 대화할 수 있는 에너지</span>
-          <span className={`text-xs text-${getCurrentTheme().accent.split('-')[0]}-600`}>{remaining.toLocaleString()} / {MAX_FREE_TOKENS.toLocaleString()} 남음</span>
-        </div>
-        <div className={`w-full bg-${getCurrentTheme().accent.split('-')[0]}-100 rounded-full h-2`}>
-          <div
-            className={`h-2 rounded-full transition-all bg-gradient-to-r ${getCurrentTheme().primary}`}
-            style={{
-              width: `${usageRatio * 100}%`
-            }}
-          ></div>
-        </div>
-        <div className={`text-center text-xs mt-1 text-${getCurrentTheme().accent.split('-')[0]}-600`}>
-          상태: {status}
+      <div className={`min-h-screen bg-gradient-to-br ${THEMES[appSettings.theme].bgClass} flex items-center justify-center p-4`}>
+        <div className="bg-white bg-opacity-90 rounded-3xl shadow-2xl p-8 max-w-md w-full">
+          <h1 className={`text-4xl font-bold text-center mb-8 bg-gradient-to-r ${THEMES[appSettings.theme].primary} bg-clip-text text-transparent`}>
+            EPLAY
+          </h1>
+          <div className="space-y-6">
+            <div>
+              <label className="block text-gray-700 text-sm font-bold mb-2">
+                비밀번호
+              </label>
+              <input
+                type="password"
+                className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:border-purple-500"
+                placeholder="비밀번호를 입력하세요"
+                onKeyPress={(e) => {
+                  if (e.key === 'Enter') {
+                    handleLogin((e.target as HTMLInputElement).value);
+                  }
+                }}
+              />
+            </div>
+            <button
+              onClick={(e) => {
+                const input = (e.currentTarget.previousElementSibling as HTMLElement).querySelector('input');
+                if (input) handleLogin(input.value);
+              }}
+              className={`w-full py-3 bg-gradient-to-r ${THEMES[appSettings.theme].primary} text-white font-bold rounded-lg hover:shadow-lg transition-all`}
+            >
+              로그인
+            </button>
+          </div>
         </div>
       </div>
     );
-  };
+  }
 
-  const renderUserProgress = () => (
-    <div className={`bg-gradient-to-r ${getCurrentTheme().secondary} rounded-xl shadow-lg p-6 mb-6 border border-${getCurrentTheme().accent.split('-')[0]}-200`}>
-      <div className="flex justify-between items-center mb-4">
-        <span className={`text-lg font-bold text-${getCurrentTheme().accent.split('-')[0]}-800`}>레벨 {userProgress.level}</span>
-        <span className={`text-sm text-${getCurrentTheme().accent.split('-')[0]}-600`}>다음 레벨까지 {userProgress.expToNext} EXP</span>
-      </div>
-      <div className={`w-full bg-${getCurrentTheme().accent.split('-')[0]}-100 rounded-full h-3`}>
-        <div
-          className={`bg-gradient-to-r ${getCurrentTheme().primary} h-3 rounded-full transition-all`}
-          style={{ width: `${userProgress.progressPercentage}%` }}
-        ></div>
-      </div>
-      <div className={`text-center text-xs text-${getCurrentTheme().accent.split('-')[0]}-600 mt-2`}>
-        총 경험치: {userProgress.experience} EXP
-      </div>
-    </div>
-  );
-
-  const renderLogin = () => (
-    <div className={`min-h-screen bg-gradient-to-br ${getCurrentTheme().bgClass} flex items-center justify-center`}>
-      <div className="bg-white rounded-2xl shadow-xl p-8 w-96">
-        <div className="text-center mb-6">
-          <div className="text-4xl mb-2">🎵</div>
-          <h1 className={`text-2xl font-bold text-${getCurrentTheme().accent.split('-')[0]}-800`}>EPLAY</h1>
-          <p className={`text-${getCurrentTheme().accent.split('-')[0]}-600`}>감정기반 음악 추천</p>
-        </div>
-
-        <div className="space-y-4">
-          <input
-            type="password"
-            placeholder="비밀번호를 입력하세요"
-            className={`w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-${getCurrentTheme().accent}`}
-            onKeyPress={(e) => {
-              if (e.key === 'Enter') {
-                handleLogin((e.target as HTMLInputElement).value);
-              }
-            }}
-          />
-          <button
-            onClick={() => {
-              const input = document.querySelector('input') as HTMLInputElement;
-              handleLogin(input.value);
-            }}
-            className={`w-full bg-gradient-to-r ${getCurrentTheme().primary} text-white py-3 rounded-lg font-semibold hover:opacity-90 transition-all`}
-          >
-            음악과 함께 시작하기
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-
-  const renderMoodSelection = () => (
-    <div className={`min-h-screen bg-gradient-to-br ${getCurrentTheme().bgClass} p-4`}>
-      <div className="max-w-4xl mx-auto">
-        {renderUserProgress()}
-        {renderTokenBar()}
-
-        <div className="text-center mb-8">
-          <h2 className="text-3xl font-bold text-gray-800 mb-2">오늘 기분은 어떠세요?</h2>
-          <p className="text-gray-600">{appSettings.aiName}가 여러분의 감정에 맞는 음악을 찾아드릴게요</p>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-8">
-          <div className="flex flex-col items-center">
+  // 기분 선택 화면
+  if (currentStep === 'mood') {
+    return (
+      <div className={`min-h-screen bg-gradient-to-br ${THEMES[appSettings.theme].bgClass} flex flex-col items-center justify-center p-4`}>
+        <div className="bg-white bg-opacity-90 rounded-3xl shadow-2xl p-8 max-w-md w-full">
+          <h2 className={`text-3xl font-bold text-center mb-8 bg-gradient-to-r ${THEMES[appSettings.theme].primary} bg-clip-text text-transparent`}>
+            오늘의 기분은 어떠신가요?
+          </h2>
+          <div className="space-y-4">
             <button
               onClick={() => handleMoodSelect('good')}
-              className="mb-4 transform hover:scale-110 transition-all duration-300 hover:drop-shadow-lg"
+              className="w-full py-6 bg-gradient-to-r from-green-400 to-blue-500 text-white rounded-2xl hover:shadow-lg transition-all flex items-center justify-center space-x-3 text-lg font-medium"
             >
-              <svg width="120" height="120" viewBox="0 0 120 120" className="drop-shadow-md">
-                <rect x="10" y="10" width="100" height="100" rx="25" ry="25" fill="#FF9500" />
-                <circle cx="45" cy="55" r="4" fill="#000" />
-                <circle cx="75" cy="55" r="4" fill="#000" />
-                <path d="M 45 75 Q 60 90 75 75" stroke="#000" strokeWidth="4" fill="none" strokeLinecap="round" />
-              </svg>
+              <span className="text-3xl">😊</span>
+              <span>좋음</span>
             </button>
-            <span className="text-lg font-semibold text-gray-700">좋아!</span>
-          </div>
-
-          <div className="flex flex-col items-center">
             <button
               onClick={() => handleMoodSelect('normal')}
-              className="mb-4 transform hover:scale-110 transition-all duration-300 hover:drop-shadow-lg"
+              className="w-full py-6 bg-gradient-to-r from-yellow-400 to-orange-500 text-white rounded-2xl hover:shadow-lg transition-all flex items-center justify-center space-x-3 text-lg font-medium"
             >
-              <svg width="120" height="120" viewBox="0 0 120 120" className="drop-shadow-md">
-                <circle cx="60" cy="60" r="50" fill="#81D4FA" />
-                <circle cx="45" cy="50" r="4" fill="#000" />
-                <circle cx="75" cy="50" r="4" fill="#000" />
-                <line x1="45" y1="75" x2="75" y2="75" stroke="#000" strokeWidth="4" strokeLinecap="round" />
-              </svg>
+              <span className="text-3xl">😐</span>
+              <span>보통</span>
             </button>
-            <span className="text-lg font-semibold text-gray-700">그냥 뭐..</span>
-          </div>
-
-          <div className="flex flex-col items-center">
             <button
               onClick={() => handleMoodSelect('bad')}
-              className="mb-4 transform hover:scale-110 transition-all duration-300 hover:drop-shadow-lg"
+              className="w-full py-6 bg-gradient-to-r from-purple-400 to-pink-500 text-white rounded-2xl hover:shadow-lg transition-all flex items-center justify-center space-x-3 text-lg font-medium"
             >
-              <svg width="120" height="120" viewBox="0 0 120 120" className="drop-shadow-md">
-                <ellipse cx="60" cy="60" rx="50" ry="45" fill="#B39DDB" />
-                <circle cx="48" cy="52" r="4" fill="#000" />
-                <circle cx="72" cy="52" r="4" fill="#000" />
-                <path d="M 48 80 Q 60 65 72 80" stroke="#000" strokeWidth="4" fill="none" strokeLinecap="round" />
-              </svg>
+              <span className="text-3xl">😔</span>
+              <span>나쁨</span>
             </button>
-            <span className="text-lg font-semibold text-gray-700">별루야..</span>
+          </div>
+          <div className="mt-8 flex justify-around text-center">
+            <button
+              onClick={() => setCurrentStep('stats')}
+              className="text-gray-600 hover:text-purple-600 transition-colors"
+            >
+              <span className="block text-2xl mb-1">📊</span>
+              <span className="text-xs">통계</span>
+            </button>
+            <button
+              onClick={() => setCurrentStep('myDiary')}
+              className="text-gray-600 hover:text-purple-600 transition-colors"
+            >
+              <span className="block text-2xl mb-1">📔</span>
+              <span className="text-xs">내 일기</span>
+            </button>
+            <button
+              onClick={() => setCurrentStep('calendar')}
+              className="text-gray-600 hover:text-purple-600 transition-colors"
+            >
+              <span className="block text-2xl mb-1">📅</span>
+              <span className="text-xs">캘린더</span>
+            </button>
+            <button
+              onClick={() => setCurrentStep('myMusic')}
+              className="text-gray-600 hover:text-purple-600 transition-colors"
+            >
+              <span className="block text-2xl mb-1">🎵</span>
+              <span className="text-xs">내 음악</span>
+            </button>
+            <button
+              onClick={() => setCurrentStep('settings')}
+              className="text-gray-600 hover:text-purple-600 transition-colors"
+            >
+              <span className="block text-2xl mb-1">⚙️</span>
+              <span className="text-xs">설정</span>
+            </button>
           </div>
         </div>
-
-        {/* 메뉴 아이콘 버튼들 */}
-        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4 mb-8">
-          <button
-            onClick={() => setCurrentStep('myDiary')}
-            className="bg-white rounded-lg shadow-md p-4 flex flex-col items-center hover:shadow-lg transition-shadow"
-          >
-            <span className="text-2xl mb-2">📖</span>
-            <span className="text-sm font-medium text-gray-700">내 일기장</span>
-            <span className="text-xs text-gray-500">({diaryEntries.length})</span>
-          </button>
-
-          <button
-            onClick={() => setCurrentStep('myMusic')}
-            className="bg-white rounded-lg shadow-md p-4 flex flex-col items-center hover:shadow-lg transition-shadow"
-          >
-            <span className="text-2xl mb-2">🎵</span>
-            <span className="text-sm font-medium text-gray-700">내 음악</span>
-            <span className="text-xs text-gray-500">({personalMusic.length})</span>
-          </button>
-
-          <button
-            onClick={() => setCurrentStep('genre')}
-            className="bg-white rounded-lg shadow-md p-4 flex flex-col items-center hover:shadow-lg transition-shadow"
-          >
-            <span className="text-2xl mb-2">🎼</span>
-            <span className="text-sm font-medium text-gray-700">음악 듣기</span>
-            <span className="text-xs text-gray-500">바로 듣기</span>
-          </button>
-
-          <button
-            onClick={() => setCurrentStep('search')}
-            className="bg-white rounded-lg shadow-md p-4 flex flex-col items-center hover:shadow-lg transition-shadow"
-          >
-            <span className="text-2xl mb-2">🔍</span>
-            <span className="text-sm font-medium text-gray-700">검색</span>
-            <span className="text-xs text-gray-500">기록 찾기</span>
-          </button>
-
-          <button
-            onClick={() => setCurrentStep('stats')}
-            className="bg-white rounded-lg shadow-md p-4 flex flex-col items-center hover:shadow-lg transition-shadow"
-          >
-            <span className="text-2xl mb-2">📊</span>
-            <span className="text-sm font-medium text-gray-700">통계 및 달력</span>
-            <span className="text-xs text-gray-500">감정 분석</span>
-          </button>
-
-          <button
-            onClick={() => setCurrentStep('trash')}
-            className="bg-white rounded-lg shadow-md p-4 flex flex-col items-center hover:shadow-lg transition-shadow"
-          >
-            <span className="text-2xl mb-2">🗑️</span>
-            <span className="text-sm font-medium text-gray-700">휴지통</span>
-            <span className="text-xs text-gray-500">({trashEntries.length})</span>
-          </button>
-
-          <button
-            onClick={() => setCurrentStep('settings')}
-            className="bg-white rounded-lg shadow-md p-4 flex flex-col items-center hover:shadow-lg transition-shadow"
-          >
-            <span className="text-2xl mb-2">⚙️</span>
-            <span className="text-sm font-medium text-gray-700">설정</span>
-            <span className="text-xs text-gray-500">옵션</span>
-          </button>
-        </div>
-
-        {/* 최근 감정 기록 */}
-        {diaryEntries.length > 0 && (
-          <div className="bg-white rounded-lg shadow-md p-6">
-            <h3 className="text-xl font-bold mb-4">최근 감정 기록</h3>
-            <div className="space-y-4">
-              {diaryEntries.slice(-5).reverse().map((entry) => (
-                <div key={entry.id} className={`flex items-center justify-between p-3 bg-gradient-to-r ${getCurrentTheme().secondary} rounded-lg border border-${getCurrentTheme().accent.split('-')[0]}-100`}>
-                  <div className="flex items-center space-x-3 flex-1">
-                    <span className="text-2xl">{getMoodEmoji(entry.mood)}</span>
-                    <div className="flex-1">
-                      <p className={`font-medium text-${getCurrentTheme().accent.split('-')[0]}-800`}>{entry.date} {entry.time}</p>
-                      <p className={`text-sm text-${getCurrentTheme().accent.split('-')[0]}-600`}>
-                        {expandedDiaryId === entry.id ? entry.summary : `${entry.summary.substring(0, 50)}...`}
-                      </p>
-                      {entry.selectedEmotions && entry.selectedEmotions.length > 0 && (
-                        <p className={`text-xs text-${getCurrentTheme().accent.split('-')[0]}-500 mt-1`}>
-                          감정: {entry.selectedEmotions.slice(0, 3).join(', ')}
-                        </p>
-                      )}
-                      {entry.musicPlayed && entry.musicPlayed.length > 0 && (
-                        <p className="text-xs text-pink-500 mt-1">
-                          🎵 {entry.musicPlayed[0].title}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex space-x-2">
-                    <button
-                      onClick={() => setExpandedDiaryId(expandedDiaryId === entry.id ? null : entry.id)}
-                      className="text-blue-500 hover:text-blue-700 p-1 rounded text-sm"
-                      title="전체 보기"
-                    >
-                      {expandedDiaryId === entry.id ? '접기' : '펼치기'}
-                    </button>
-                    <button
-                      onClick={() => moveToTrash(entry)}
-                      className="text-red-500 hover:text-red-700 p-1 rounded"
-                      title="휴지통으로 이동"
-                    >
-                      🗑️
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
       </div>
-    </div>
-  );
+    );
+  }
 
-  const renderChat = () => (
-    <div className={`min-h-screen bg-gradient-to-br ${getCurrentTheme().bgClass} p-4`}>
-      <div className="max-w-4xl mx-auto">
-        {renderUserProgress()}
-        {renderTokenBar()}
-
-        <div className={`bg-gradient-to-r ${getCurrentTheme().secondary} rounded-lg shadow-lg p-6 mb-6 border border-${getCurrentTheme().accent.split('-')[0]}-200`}>
-          <div className="flex items-center justify-between mb-4">
-            <h2 className={`text-xl font-bold text-${getCurrentTheme().accent.split('-')[0]}-800`}>{appSettings.aiName}와 대화하기</h2>
-            <div className="flex items-center space-x-2">
-              <span className={`text-sm text-${getCurrentTheme().accent.split('-')[0]}-600`}>현재 기분:</span>
-              <span className={`px-3 py-1 bg-${getCurrentTheme().accent.split('-')[0]}-100 text-${getCurrentTheme().accent.split('-')[0]}-800 rounded-full text-sm`}>
-                {getMoodEmoji(currentMood || 'normal')} {getMoodText(currentMood || 'normal')}
-              </span>
+  // 채팅 화면
+  if (currentStep === 'chat') {
+    return (
+      <div className={`min-h-screen bg-gradient-to-br ${THEMES[appSettings.theme].bgClass} flex flex-col`}>
+        <div className="bg-white bg-opacity-90 rounded-b-3xl shadow-lg p-4 mb-4">
+          <div className="flex items-center justify-between">
+            <button
+              onClick={() => setCurrentStep('mood')}
+              className="text-gray-600 hover:text-gray-800"
+            >
+              ← 뒤로
+            </button>
+            <h2 className={`text-xl font-bold bg-gradient-to-r ${THEMES[appSettings.theme].primary} bg-clip-text text-transparent`}>
+              {appSettings.aiName}와의 대화
+            </h2>
+            <div className="text-sm text-gray-600">
+              Lv.{userProgress.level}
             </div>
           </div>
-
-          <div className={`h-96 overflow-y-auto mb-4 p-4 bg-gradient-to-br from-white to-${getCurrentTheme().accent.split('-')[0]}-50 rounded-lg border border-${getCurrentTheme().accent.split('-')[0]}-100`}>
-            {chatMessages.map((message, index) => (
-              <div key={index} className={`mb-4 ${message.role === 'user' ? 'text-right' : 'text-left'}`}>
-                <div className={`inline-block p-3 rounded-lg max-w-xs ${
-                  message.role === 'user' 
-                    ? `bg-gradient-to-r ${getCurrentTheme().primary} text-white`
-                    : `bg-white text-${getCurrentTheme().accent.split('-')[0]}-800 border border-${getCurrentTheme().accent.split('-')[0]}-200`
-                }`}>
-                  {message.role === 'assistant' && (
-                    <div className={`font-semibold mb-1 text-${getCurrentTheme().accent.split('-')[0]}-600`}>{appSettings.aiName}:</div>
-                  )}
-                  {message.content}
-                  
-                  {/* 음악 추천이 있는 경우 */}
-                  {message.musicRecommendation && (
-                    <div className="mt-3 p-3 bg-gray-50 rounded-lg border">
-                      <div className="text-sm font-semibold text-gray-700 mb-2">🎵 추천 음악</div>
-                      <div className="flex items-center space-x-2 mb-2">
-                        <img 
-                          src={message.musicRecommendation.thumbnail} 
-                          alt={message.musicRecommendation.title}
-                          className="w-12 h-12 object-cover rounded"
-                        />
-                        <div className="flex-1">
-                          <p className="text-sm font-medium text-gray-800">{message.musicRecommendation.title}</p>
-                          <p className="text-xs text-gray-600">{message.musicRecommendation.artist}</p>
-                          <p className="text-xs text-purple-500">{message.musicRecommendation.source === 'spotify' ? 'Spotify' : 'YouTube'}</p>
-                        </div>
-                      </div>
-                      <div className="flex space-x-2">
-                        <a
-                          href={message.musicRecommendation.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className={`flex-1 py-1 px-2 ${message.musicRecommendation.source === 'spotify' ? 'bg-green-500 hover:bg-green-600' : 'bg-red-500 hover:bg-red-600'} text-white rounded text-center text-xs`}
-                        >
-                          {message.musicRecommendation.source === 'spotify' ? 'Spotify에서 듣기' : 'YouTube에서 듣기'}
-                        </a>
-                        <button
-                          onClick={() => handleMusicSelect(message.musicRecommendation!)}
-                          className="flex-1 py-1 px-2 bg-blue-500 text-white rounded text-xs hover:bg-blue-600"
-                        >
-                          내 리스트 추가
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-            ))}
-            {isLoading && (
-              <div className="text-left">
-                <div className={`inline-block p-3 rounded-lg bg-white text-${getCurrentTheme().accent.split('-')[0]}-800 border border-${getCurrentTheme().accent.split('-')[0]}-200`}>
-                  <div className={`font-semibold mb-1 text-${getCurrentTheme().accent.split('-')[0]}-600`}>{appSettings.aiName}:</div>
-                  답변을 준비하고 있어요... 💜
-                </div>
-              </div>
-            )}
+          <div className="mt-2 text-center">
+            <span className="text-3xl">{getMoodEmoji(currentMood || 'normal')}</span>
+            <span className="ml-2 text-gray-600">{getMoodText(currentMood || 'normal')}</span>
           </div>
+        </div>
 
-          <div className="flex space-x-2">
+        <div className="flex-1 overflow-y-auto px-4 pb-32">
+          {chatMessages.map((message, index) => (
+            <div key={index} className={`mb-4 ${message.role === 'user' ? 'text-right' : 'text-left'}`}>
+              <div
+                className={`inline-block p-4 rounded-2xl max-w-xs ${
+                  message.role === 'user'
+                    ? `bg-gradient-to-r ${THEMES[appSettings.theme].primary} text-white`
+                    : 'bg-white bg-opacity-90 text-gray-800'
+                }`}
+              >
+                {message.content}
+                {message.musicRecommendation && (
+                  <div className="mt-3 p-3 bg-white bg-opacity-20 rounded-lg">
+                    <div className="text-sm font-medium mb-1">🎵 추천 음악</div>
+                    <div className="text-sm">{message.musicRecommendation.title}</div>
+                    <div className="text-xs opacity-80">{message.musicRecommendation.artist}</div>
+                    <button
+                      onClick={() => {
+                        if (message.musicRecommendation) {
+                          handleMusicSelect(message.musicRecommendation);
+                        }
+                      }}
+                      className="mt-2 text-xs bg-white bg-opacity-30 px-2 py-1 rounded hover:bg-opacity-40"
+                    >
+                      내 음악에 추가
+                    </button>
+                  </div>
+                )}
+              </div>
+              <div className="text-xs text-gray-500 mt-1">
+                {new Date(message.timestamp).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}
+              </div>
+            </div>
+          ))}
+          {isLoading && (
+            <div className="text-center">
+              <div className="inline-block p-4 bg-white bg-opacity-90 rounded-2xl">
+                <div className="animate-pulse">생각하는 중...</div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="fixed bottom-0 left-0 right-0 bg-white bg-opacity-95 p-4 shadow-lg">
+          <div className="max-w-4xl mx-auto flex gap-2">
             <input
               type="text"
               value={currentInput}
               onChange={(e) => setCurrentInput(e.target.value)}
               onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
-              placeholder="오늘 하루 어떠셨나요?"
-              className={`flex-1 px-4 py-2 border border-${getCurrentTheme().accent.split('-')[0]}-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-${getCurrentTheme().accent} bg-white`}
-              disabled={isLoading}
+              placeholder="메시지를 입력하세요..."
+              className="flex-1 px-4 py-3 border-2 border-gray-300 rounded-full focus:outline-none focus:border-purple-500"
             />
             <button
               onClick={handleSendMessage}
-              disabled={isLoading}
-              className={`px-6 py-2 bg-gradient-to-r ${getCurrentTheme().primary} text-white rounded-lg hover:opacity-90 disabled:opacity-50`}
+              disabled={isLoading || !currentInput.trim()}
+              className={`px-6 py-3 bg-gradient-to-r ${THEMES[appSettings.theme].primary} text-white rounded-full hover:shadow-lg transition-all disabled:opacity-50`}
             >
               전송
             </button>
+            {chatMessages.length >= 3 && (
+              <button
+                onClick={handleGenerateSummary}
+                className="px-6 py-3 bg-gradient-to-r from-indigo-500 to-purple-500 text-white rounded-full hover:shadow-lg transition-all"
+              >
+                요약
+              </button>
+            )}
           </div>
         </div>
-
-        <div className="flex space-x-4">
-          <button
-            onClick={() => setCurrentStep('genre')}
-            className={`flex-1 py-3 bg-gradient-to-r ${getCurrentTheme().primary} text-white rounded-lg font-semibold hover:opacity-90`}
-          >
-            🎵 음악 장르별로 바로 듣기
-          </button>
-          <button
-            onClick={handleGenerateSummary}
-            className="flex-1 py-3 bg-gradient-to-r from-blue-500 to-cyan-500 text-white rounded-lg font-semibold hover:opacity-90"
-            disabled={chatMessages.length === 0}
-          >
-            📝 감정 요약하기
-          </button>
-        </div>
-
-        <div className="flex space-x-4 mt-4">
-          <button
-            onClick={() => setCurrentStep('mood')}
-            className="px-6 py-3 bg-gray-500 text-white rounded-lg hover:bg-gray-600"
-          >
-            🏠 홈으로
-          </button>
-        </div>
       </div>
-    </div>
-  );
+    );
+  }
 
-  const renderGenreSelection = () => (
-    <div className={`min-h-screen bg-gradient-to-br ${getCurrentTheme().bgClass} p-4`}>
-      <div className="max-w-4xl mx-auto">
-        {renderUserProgress()}
-        {renderTokenBar()}
-
-        <div className="text-center mb-8">
-          <h2 className="text-3xl font-bold text-gray-800 mb-2">어떤 음악이 듣고 싶으세요?</h2>
-          <p className="text-gray-600">현재 기분에 맞는 장르를 선택해주세요</p>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
-          {Object.entries(MUSIC_GENRES).map(([key, genre]) => (
-            <button
-              key={key}
-              onClick={() => handleGenreSelect(key)}
-              className="bg-white rounded-xl shadow-lg p-6 hover:shadow-xl transition-all transform hover:scale-105 border-2 border-transparent hover:border-purple-300"
-            >
-              <div className="text-center">
-                <div className="text-4xl mb-3">{genre.icon}</div>
-                <h3 className="text-xl font-bold text-gray-800 mb-2">{genre.name}</h3>
-                <p className="text-gray-600 text-sm">{genre.desc}</p>
-              </div>
-            </button>
-          ))}
-        </div>
-
-        <div className="text-center">
-          <button
-            onClick={() => setCurrentStep('mood')}
-            className="px-6 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-all"
-          >
-            🏠 홈으로 돌아가기
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-
-  const renderMusicSelection = () => (
-    <div className={`min-h-screen bg-gradient-to-br ${getCurrentTheme().bgClass} p-4`}>
-      <div className="max-w-4xl mx-auto">
-        {renderUserProgress()}
-        {renderTokenBar()}
-
-        <div className="text-center mb-8">
-          <h2 className="text-3xl font-bold text-gray-800 mb-2">
-            🎵 {selectedGenre ? MUSIC_GENRES[selectedGenre as keyof typeof MUSIC_GENRES]?.name : '음악'} 추천
+  // 음악 장르 선택 화면
+  if (currentStep === 'genre') {
+    return (
+      <div className={`min-h-screen bg-gradient-to-br ${THEMES[appSettings.theme].bgClass} flex flex-col items-center justify-center p-4`}>
+        <div className="bg-white bg-opacity-90 rounded-3xl shadow-2xl p-8 max-w-4xl w-full">
+          <h2 className={`text-3xl font-bold text-center mb-8 bg-gradient-to-r ${THEMES[appSettings.theme].primary} bg-clip-text text-transparent`}>
+            듣고 싶은 음악 스타일을 선택하세요
           </h2>
-          <p className="text-gray-600">마음에 드는 음악을 선택해보세요 (총 3곡)</p>
-        </div>
-
-        {isLoading ? (
-          <div className="text-center">
-            <div className="text-4xl mb-4">🎵</div>
-            <p className="text-lg text-gray-600">음악을 찾고 있어요...</p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
-            {recommendedMusic.map((music) => (
-              <div key={music.id} className="bg-white rounded-xl shadow-lg p-6 hover:shadow-xl transition-all">
-                <div className="flex items-center space-x-4 mb-4">
-                  <img
-                    src={music.thumbnail}
-                    alt={music.title}
-                    className="w-16 h-16 object-cover rounded-lg"
-                  />
-                  <div className="flex-1">
-                    <h3 className="font-bold text-gray-800 text-sm line-clamp-2">{music.title}</h3>
-                    <p className="text-gray-600 text-xs">{music.artist}</p>
-                    <p className="text-xs text-purple-500">{music.source === 'spotify' ? 'Spotify' : 'YouTube'}</p>
-                  </div>
-                </div>
-                
-                <div className="space-y-2">
-                  <a
-                    href={music.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className={`w-full block py-2 px-4 ${music.source === 'spotify' ? 'bg-green-500 hover:bg-green-600' : 'bg-red-500 hover:bg-red-600'} text-white rounded-lg text-center text-sm transition-all`}
-                  >
-                    🎧 {music.source === 'spotify' ? 'Spotify에서 듣기' : 'YouTube에서 듣기'}
-                  </a>
-                  <button
-                    onClick={() => handleMusicSelect(music)}
-                    className="w-full py-2 px-4 bg-blue-500 text-white rounded-lg text-sm hover:bg-blue-600 transition-all"
-                  >
-                    내 음악에 추가
-                  </button>
-                </div>
-              </div>
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+            {Object.entries(MUSIC_GENRES).map(([key, genre]) => (
+              <button
+                key={key}
+                onClick={() => handleGenreSelect(key)}
+                className={`p-6 bg-gradient-to-r ${THEMES[appSettings.theme].primary} text-white rounded-2xl hover:shadow-lg transition-all`}
+              >
+                <div className="text-3xl mb-2">{genre.icon}</div>
+                <div className="font-medium">{genre.name}</div>
+                <div className="text-xs opacity-80 mt-1">{genre.desc}</div>
+              </button>
             ))}
           </div>
-        )}
-
-        {recommendedMusic.length === 0 && !isLoading && (
-          <div className="text-center">
-            <div className="text-4xl mb-4">😅</div>
-            <p className="text-lg text-gray-600">음악을 찾을 수 없어요. 다른 장르를 시도해보세요!</p>
-          </div>
-        )}
-
-        <div className="flex justify-center space-x-4">
-          <button
-            onClick={() => setCurrentStep('genre')}
-            className="px-6 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-all"
-          >
-            장르 다시 선택
-          </button>
-          <button
-            onClick={() => setCurrentStep('mood')}
-            className="px-6 py-2 bg-purple-500 text-white rounded-lg hover:bg-purple-600 transition-all"
-          >
-            🏠 홈으로 돌아가기
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-
-  const renderSummary = () => (
-    <div className={`min-h-screen bg-gradient-to-br ${getCurrentTheme().bgClass} p-4`}>
-      <div className="max-w-4xl mx-auto">
-        {renderUserProgress()}
-        {renderTokenBar()}
-
-        <div className="text-center mb-8">
-          <h2 className="text-3xl font-bold text-gray-800 mb-2">📝 오늘의 감정 요약</h2>
-          <p className="text-gray-600">AI가 분석한 내용을 확인하고 추가 감정을 선택해보세요</p>
-        </div>
-
-        {summaryData && (
-          <div className="space-y-6">
-            {/* 요약 내용 */}
-            <div className="bg-white rounded-xl shadow-lg p-6">
-              <h3 className="text-xl font-bold mb-4 text-gray-800">📖 오늘의 이야기</h3>
-              <p className="text-gray-700 leading-relaxed">{summaryData.summary}</p>
-            </div>
-
-            {/* 키워드 */}
-            <div className="bg-white rounded-xl shadow-lg p-6">
-              <h3 className="text-xl font-bold mb-4 text-gray-800">🏷️ 감정 키워드</h3>
-              <div className="flex flex-wrap gap-2">
-                {summaryData.keywords.map((keyword: string, index: number) => (
-                  <span
-                    key={index}
-                    className={`px-3 py-1 bg-gradient-to-r ${getCurrentTheme().primary} text-white rounded-full text-sm`}
-                  >
-                    {keyword}
-                  </span>
-                ))}
-              </div>
-            </div>
-
-            {/* AI 추천 감정 */}
-            <div className="bg-white rounded-xl shadow-lg p-6">
-              <h3 className="text-xl font-bold mb-4 text-gray-800">🤖 AI 추천 세부 감정</h3>
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 mb-4">
-                {summaryData.recommendedEmotions.map((emotion: string, index: number) => (
-                  <button
-                    key={index}
-                    onClick={() => handleEmotionSelect(emotion)}
-                    className={`p-3 rounded-lg text-sm font-medium transition-all border-2 ${
-                      selectedEmotions.includes(emotion)
-                        ? `bg-gradient-to-r ${getCurrentTheme().primary} text-white border-purple-500 shadow-lg transform scale-105`
-                        : 'bg-gray-50 text-gray-700 border-gray-200 hover:border-purple-300 hover:bg-purple-50'
-                    }`}
-                  >
-                    {emotion}
-                  </button>
-                ))}
-              </div>
-              <p className="text-xs text-gray-500">최대 2개까지 선택 가능 (선택한 감정: {selectedEmotions.length}/2)</p>
-            </div>
-
-            {/* 사용자 감정 입력 */}
-            <div className="bg-white rounded-xl shadow-lg p-6">
-              <h3 className="text-xl font-bold mb-4 text-gray-800">💭 나의 오늘 감정</h3>
-              <p className="text-gray-600 text-sm mb-3">오늘 가장 크게 느낀 감정을 한 가지만 입력해주세요</p>
-              <input
-                type="text"
-                value={userMainEmotion}
-                onChange={(e) => setUserMainEmotion(e.target.value)}
-                placeholder="예: 행복, 걱정, 설렘, 피곤함 등"
-                className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-lg"
-                maxLength={10}
-              />
-              <p className="text-xs text-gray-500 mt-2">최대 10자까지 입력 가능</p>
-            </div>
-
-            {/* 직접 입력 감정 */}
-            <div className="bg-white rounded-xl shadow-lg p-6">
-              <h3 className="text-xl font-bold mb-4 text-gray-800">✍️ 추가 감정 입력</h3>
-              <p className="text-gray-600 text-sm mb-3">위의 선택지에 없는 다른 감정이 있다면 추가로 입력해주세요</p>
-              <input
-                type="text"
-                value={additionalEmotion}
-                onChange={(e) => setAdditionalEmotion(e.target.value)}
-                placeholder="다른 감정이 있다면 직접 입력해주세요"
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                maxLength={20}
-              />
-            </div>
-
-            {/* 액션 아이템 */}
-            <div className="bg-white rounded-xl shadow-lg p-6">
-              <h3 className="text-xl font-bold mb-4 text-gray-800">🎯 추천 액션</h3>
-              <div className="space-y-2">
-                {summaryData.actionItems.map((item: string, index: number) => (
-                  <div key={index} className="flex items-center space-x-2 p-3 bg-gray-50 rounded-lg">
-                    <span className="text-green-500">✅</span>
-                    <span className="text-gray-700">{item}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* 저장 버튼 */}
-            <div className="text-center">
-              <button
-                onClick={handleSaveDiary}
-                disabled={isLoading}
-                className={`px-8 py-3 bg-gradient-to-r ${getCurrentTheme().primary} text-white rounded-lg font-bold text-lg hover:opacity-90 transition-all disabled:opacity-50`}
-              >
-                💾 일기 저장하기 (+20 EXP)
-              </button>
-            </div>
-          </div>
-        )}
-
-        <div className="text-center mt-6">
           <button
             onClick={() => setCurrentStep('chat')}
-            className="px-6 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-all"
+            className="mt-6 text-gray-600 hover:text-gray-800"
           >
-            대화로 돌아가기
+            ← 대화로 돌아가기
           </button>
         </div>
       </div>
-    </div>
-  );
+    );
+  }
 
-  const renderStats = () => {
-    // 감정별 통계 계산
-    const moodStats = ['good', 'normal', 'bad'].map(mood => {
-      const count = diaryEntries.filter(entry => entry.mood === mood).length;
-      const percentage = diaryEntries.length > 0 ? (count / diaryEntries.length) * 100 : 0;
-      return { mood, count, percentage };
-    });
-
-    // 감정 빈도 통계
-    const emotionFreq: { [key: string]: number } = {};
-    diaryEntries.forEach(entry => {
-      entry.selectedEmotions?.forEach(emotion => {
-        emotionFreq[emotion] = (emotionFreq[emotion] || 0) + 1;
-      });
-    });
-
-    const topEmotions = Object.entries(emotionFreq)
-      .sort(([,a], [,b]) => b - a)
-      .slice(0, 5);
-
-    // 달력 데이터
-    const monthNames = ['1월', '2월', '3월', '4월', '5월', '6월', '7월', '8월', '9월', '10월', '11월', '12월'];
-    const dayNames = ['일', '월', '화', '수', '목', '금', '토'];
-
-    const getCalendarData = (month: Date) => {
-      const startOfMonth = new Date(month.getFullYear(), month.getMonth(), 1);
-      const startDate = new Date(startOfMonth);
-      startDate.setDate(startDate.getDate() - startDate.getDay());
-
-      const calendarData = [];
-      const currentDate = new Date(startDate);
-
-      for (let week = 0; week < 6; week++) {
-        const weekData = [];
-        for (let day = 0; day < 7; day++) {
-          const dayEntries = diaryEntries.filter(entry => {
-            const entryDate = new Date(entry.date);
-            return entryDate.toDateString() === currentDate.toDateString();
-          });
-
-          weekData.push({
-            date: new Date(currentDate),
-            entries: dayEntries,
-            isCurrentMonth: currentDate.getMonth() === month.getMonth(),
-            isToday: currentDate.toDateString() === new Date().toDateString()
-          });
-
-          currentDate.setDate(currentDate.getDate() + 1);
-        }
-        calendarData.push(weekData);
-      }
-
-      return calendarData;
-    };
-
-    const calendarData = getCalendarData(currentCalendarMonth);
-
+  // 음악 추천 화면
+  if (currentStep === 'music') {
     return (
-      <div className={`min-h-screen bg-gradient-to-br ${getCurrentTheme().bgClass} p-4`}>
-        <div className="max-w-4xl mx-auto">
-          {renderUserProgress()}
-          
-          <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-2xl font-bold">📊 통계 & 📅 감정 달력</h2>
-              <button
-                onClick={() => setCurrentStep('mood')}
-                className="px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600"
-              >
-                🏠 홈으로
-              </button>
+      <div className={`min-h-screen bg-gradient-to-br ${THEMES[appSettings.theme].bgClass} flex flex-col items-center justify-center p-4`}>
+        <div className="bg-white bg-opacity-90 rounded-3xl shadow-2xl p-8 max-w-4xl w-full">
+          <h2 className={`text-3xl font-bold text-center mb-8 bg-gradient-to-r ${THEMES[appSettings.theme].primary} bg-clip-text text-transparent`}>
+            추천 음악
+          </h2>
+          {isLoading ? (
+            <div className="text-center py-12">
+              <div className="animate-pulse text-gray-600">음악을 찾고 있습니다...</div>
             </div>
+          ) : (
+            <div className="space-y-4">
+              {recommendedMusic.map((music) => (
+                <div
+                  key={music.id}
+                  className="bg-white bg-opacity-70 rounded-xl p-4 flex items-center space-x-4 hover:shadow-lg transition-all cursor-pointer"
+                  onClick={() => handleMusicSelect(music)}
+                >
+                  {music.thumbnail && (
+                    <img
+                      src={music.thumbnail}
+                      alt={music.title}
+                      className="w-20 h-20 rounded-lg object-cover"
+                    />
+                  )}
+                  <div className="flex-1">
+                    <h3 className="font-bold text-lg">{music.title}</h3>
+                    <p className="text-gray-600">{music.artist}</p>
+                    {music.album && (
+                      <p className="text-sm text-gray-500">{music.album}</p>
+                    )}
+                  </div>
+                  <div className="text-right">
+                    {music.source === 'spotify' ? (
+                      <span className="text-green-500 text-sm">Spotify</span>
+                    ) : (
+                      <span className="text-red-500 text-sm">YouTube</span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="mt-6 flex justify-between">
+            <button
+              onClick={() => setCurrentStep('genre')}
+              className="text-gray-600 hover:text-gray-800"
+            >
+              ← 장르 다시 선택
+            </button>
+            <button
+              onClick={() => setCurrentStep('chat')}
+              className="text-gray-600 hover:text-gray-800"
+            >
+              대화로 돌아가기
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
-            {/* 통계 섹션 */}
-            <div className="mb-8">
-              <h3 className="text-xl font-bold mb-4">📊 통계</h3>
-              
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-                <div className={`bg-gradient-to-r ${getCurrentTheme().primary} text-white p-6 rounded-lg`}>
-                  <h4 className="text-lg font-semibold mb-2">총 일기 수</h4>
-                  <p className="text-3xl font-bold">{diaryEntries.length}</p>
+  // 요약 화면
+  if (currentStep === 'summary') {
+    return (
+      <div className={`min-h-screen bg-gradient-to-br ${THEMES[appSettings.theme].bgClass} p-4`}>
+        <div className="max-w-2xl mx-auto">
+          <div className="bg-white bg-opacity-90 rounded-3xl shadow-2xl p-8">
+            <h2 className={`text-3xl font-bold text-center mb-8 bg-gradient-to-r ${THEMES[appSettings.theme].primary} bg-clip-text text-transparent`}>
+              오늘의 감정 요약
+            </h2>
+            
+            {summaryData && (
+              <div className="space-y-6">
+                <div>
+                  <h3 className="font-bold text-lg mb-2">📝 오늘의 이야기</h3>
+                  <p className="text-gray-700 bg-gray-50 p-4 rounded-lg">{summaryData.summary}</p>
                 </div>
-                <div className="bg-gradient-to-r from-blue-500 to-cyan-500 text-white p-6 rounded-lg">
-                  <h4 className="text-lg font-semibold mb-2">저장된 음악</h4>
-                  <p className="text-3xl font-bold">{personalMusic.length}</p>
-                </div>
-                <div className="bg-gradient-to-r from-green-500 to-teal-500 text-white p-6 rounded-lg">
-                  <h4 className="text-lg font-semibold mb-2">현재 레벨</h4>
-                  <p className="text-3xl font-bold">{userProgress.level}</p>
-                </div>
-                <div className="bg-gradient-to-r from-yellow-500 to-orange-500 text-white p-6 rounded-lg">
-                  <h4 className="text-lg font-semibold mb-2">총 경험치</h4>
-                  <p className="text-3xl font-bold">{userProgress.experience}</p>
-                </div>
-              </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-                <div className="bg-gray-50 p-6 rounded-lg">
-                  <h4 className="text-lg font-semibold mb-4">기분 분포</h4>
-                  <div className="space-y-3">
-                    {moodStats.map(({ mood, count, percentage }) => (
-                      <div key={mood} className="flex items-center space-x-3">
-                        <span className="text-2xl">{getMoodEmoji(mood)}</span>
-                        <div className="flex-1">
-                          <div className="flex justify-between text-sm mb-1">
-                            <span>{getMoodText(mood)}</span>
-                            <span>{count}개 ({percentage.toFixed(1)}%)</span>
-                          </div>
-                          <div className={`w-full bg-${getCurrentTheme().accent.split('-')[0]}-100 rounded-full h-2`}>
-                            <div
-                              className={`bg-gradient-to-r ${getCurrentTheme().primary} h-2 rounded-full transition-all`}
-                              style={{ width: `${percentage}%` }}
-                            />
-                          </div>
-                        </div>
+                <div>
+                  <h3 className="font-bold text-lg mb-2">🏷️ 감정 키워드</h3>
+                  <div className="flex flex-wrap gap-2">
+                    {summaryData.keywords.map((keyword: string, index: number) => (
+                      <span
+                        key={index}
+                        className={`px-3 py-1 bg-gradient-to-r ${THEMES[appSettings.theme].primary} text-white rounded-full text-sm`}
+                      >
+                        {keyword}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <h3 className="font-bold text-lg mb-2">💝 오늘의 주요 감정</h3>
+                  <input
+                    type="text"
+                    value={userMainEmotion}
+                    onChange={(e) => setUserMainEmotion(e.target.value)}
+                    placeholder="오늘 가장 크게 느낀 감정을 입력하세요"
+                    className="w-full px-4 py-2 border-2 border-gray-300 rounded-lg focus:outline-none focus:border-purple-500 mb-4"
+                  />
+                  
+                  <h4 className="font-medium mb-2">AI가 분석한 감정 (선택)</h4>
+                  <div className="flex flex-wrap gap-2">
+                    {summaryData.recommendedEmotions.map((emotion: string, index: number) => (
+                      <button
+                        key={index}
+                        onClick={() => handleEmotionSelect(emotion)}
+                        className={`px-3 py-1 rounded-full text-sm transition-all ${
+                          selectedEmotions.includes(emotion)
+                            ? `bg-gradient-to-r ${THEMES[appSettings.theme].primary} text-white`
+                            : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                        }`}
+                      >
+                        {emotion}
+                      </button>
+                    ))}
+                  </div>
+                  
+                  <input
+                    type="text"
+                    value={additionalEmotion}
+                    onChange={(e) => setAdditionalEmotion(e.target.value)}
+                    placeholder="추가 감정 입력 (선택사항)"
+                    className="w-full px-4 py-2 border-2 border-gray-300 rounded-lg focus:outline-none focus:border-purple-500 mt-3"
+                  />
+                </div>
+
+                <div>
+                  <h3 className="font-bold text-lg mb-2">✨ 오늘의 액션 아이템</h3>
+                  <div className="space-y-2">
+                    {summaryData.actionItems.map((item: string, index: number) => (
+                      <div key={index} className="flex items-start space-x-2">
+                        <span className="text-purple-500">•</span>
+                        <span className="text-gray-700">{item}</span>
                       </div>
                     ))}
                   </div>
                 </div>
 
-                <div className="bg-gray-50 p-6 rounded-lg">
-                  <h4 className="text-lg font-semibold mb-4">자주 느끼는 감정 TOP 5</h4>
-                  <div className="space-y-2">
-                    {topEmotions.length > 0 ? (
-                      topEmotions.map(([emotion, count], index) => (
-                        <div key={emotion} className="flex items-center justify-between">
-                          <div className="flex items-center space-x-2">
-                            <span className="text-lg">{index + 1}</span>
-                            <span className="font-medium">{emotion}</span>
-                          </div>
-                          <span className="text-sm text-gray-600">{count}회</span>
+                {(selectedMusic || chatMessages.some(msg => msg.musicRecommendation)) && (
+                  <div>
+                    <h3 className="font-bold text-lg mb-2">🎵 오늘 들은 음악</h3>
+                    <div className="space-y-2">
+                      {selectedMusic && (
+                        <div className="bg-gray-50 p-3 rounded-lg">
+                          <div className="font-medium">{selectedMusic.title}</div>
+                          <div className="text-sm text-gray-600">{selectedMusic.artist}</div>
                         </div>
-                      ))
-                    ) : (
-                      <p className="text-gray-500 text-sm">아직 감정 데이터가 부족해요</p>
-                    )}
+                      )}
+                      {chatMessages
+                        .filter(msg => msg.musicRecommendation)
+                        .map((msg, index) => (
+                          <div key={index} className="bg-gray-50 p-3 rounded-lg">
+                            <div className="font-medium">{msg.musicRecommendation!.title}</div>
+                            <div className="text-sm text-gray-600">{msg.musicRecommendation!.artist}</div>
+                          </div>
+                        ))}
+                    </div>
                   </div>
+                )}
+              </div>
+            )}
+
+            <div className="mt-8 flex gap-4">
+              <button
+                onClick={() => setCurrentStep('genre')}
+                className={`flex-1 py-3 bg-gradient-to-r ${THEMES[appSettings.theme].secondary} text-gray-700 rounded-lg hover:shadow-lg transition-all`}
+              >
+                음악 선택하기
+              </button>
+              <button
+                onClick={handleSaveDiary}
+                disabled={isLoading || !userMainEmotion.trim()}
+                className={`flex-1 py-3 bg-gradient-to-r ${THEMES[appSettings.theme].primary} text-white rounded-lg hover:shadow-lg transition-all disabled:opacity-50`}
+              >
+                {isLoading ? '저장 중...' : '일기 저장'}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // 통계 화면
+  if (currentStep === 'stats') {
+    const totalMusic = personalMusic.reduce((sum, music) => sum + (music.playCount || 0), 0);
+    const avgMood = diaryEntries.length > 0
+      ? diaryEntries.reduce((sum, entry) => sum + (entry.mood === 'good' ? 1 : entry.mood === 'normal' ? 0 : -1), 0) / diaryEntries.length
+      : 0;
+    const moodText = avgMood > 0.3 ? '긍정적' : avgMood < -0.3 ? '우울' : '보통';
+
+    return (
+      <div className={`min-h-screen bg-gradient-to-br ${THEMES[appSettings.theme].bgClass} p-4`}>
+        <div className="max-w-4xl mx-auto">
+          <div className="bg-white bg-opacity-90 rounded-3xl shadow-2xl p-8">
+            <div className="flex items-center justify-between mb-8">
+              <button
+                onClick={() => setCurrentStep('mood')}
+                className="text-gray-600 hover:text-gray-800"
+              >
+                ← 뒤로
+              </button>
+              <h2 className={`text-3xl font-bold bg-gradient-to-r ${THEMES[appSettings.theme].primary} bg-clip-text text-transparent`}>
+                나의 통계
+              </h2>
+              <div></div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="bg-gradient-to-r from-purple-100 to-pink-100 p-6 rounded-2xl">
+                <h3 className="text-xl font-bold mb-4">📊 레벨 & 경험치</h3>
+                <div className="text-3xl font-bold text-purple-600 mb-2">Lv.{userProgress.level}</div>
+                <div className="w-full bg-gray-200 rounded-full h-4 mb-2">
+                  <div
+                    className={`bg-gradient-to-r ${THEMES[appSettings.theme].primary} h-4 rounded-full`}
+                    style={{ width: `${userProgress.progressPercentage}%` }}
+                  ></div>
                 </div>
+                <div className="text-sm text-gray-600">
+                  {userProgress.experience} / {userProgress.experience + userProgress.expToNext} EXP
+                </div>
+              </div>
+
+              <div className="bg-gradient-to-r from-blue-100 to-cyan-100 p-6 rounded-2xl">
+                <h3 className="text-xl font-bold mb-4">📔 일기 통계</h3>
+                <div className="text-3xl font-bold text-blue-600 mb-2">{diaryEntries.length}개</div>
+                <div className="text-sm text-gray-600">총 작성한 일기</div>
+                <div className="mt-2 text-sm">평균 감정: {moodText}</div>
+              </div>
+
+              <div className="bg-gradient-to-r from-green-100 to-emerald-100 p-6 rounded-2xl">
+                <h3 className="text-xl font-bold mb-4">🎵 음악 통계</h3>
+                <div className="text-3xl font-bold text-green-600 mb-2">{totalMusic}회</div>
+                <div className="text-sm text-gray-600">총 재생 횟수</div>
+                <div className="mt-2 text-sm">저장된 음악: {personalMusic.length}곡</div>
+              </div>
+
+              <div className="bg-gradient-to-r from-yellow-100 to-orange-100 p-6 rounded-2xl">
+                <h3 className="text-xl font-bold mb-4">🔥 연속 기록</h3>
+                <div className="text-3xl font-bold text-orange-600 mb-2">{userProgress.consecutiveDays}일</div>
+                <div className="text-sm text-gray-600">연속 작성일</div>
               </div>
             </div>
 
-            {/* 달력 섹션 */}
-            <div>
-              <h3 className="text-xl font-bold mb-4">📅 감정 달력</h3>
-              
-              <div className="flex items-center justify-between mb-6">
-                <button
-                  onClick={() => {
-                    const newMonth = new Date(currentCalendarMonth);
-                    newMonth.setMonth(newMonth.getMonth() - 1);
-                    setCurrentCalendarMonth(newMonth);
-                  }}
-                  className={`px-4 py-2 bg-gradient-to-r ${getCurrentTheme().primary} text-white rounded-lg hover:opacity-90`}
-                >
-                  ← 이전
-                </button>
-                <h4 className="text-lg font-bold">
-                  {currentCalendarMonth.getFullYear()}년 {monthNames[currentCalendarMonth.getMonth()]}
-                </h4>
-                <button
-                  onClick={() => {
-                    const newMonth = new Date(currentCalendarMonth);
-                    newMonth.setMonth(newMonth.getMonth() + 1);
-                    setCurrentCalendarMonth(newMonth);
-                  }}
-                  className={`px-4 py-2 bg-gradient-to-r ${getCurrentTheme().primary} text-white rounded-lg hover:opacity-90`}
-                >
-                  다음 →
-                </button>
+            <div className="mt-8 bg-gray-50 p-6 rounded-2xl">
+              <h3 className="text-xl font-bold mb-4">🏷️ 자주 사용한 감정 키워드</h3>
+              <div className="flex flex-wrap gap-2">
+                {(() => {
+                  const keywordCounts: { [key: string]: number } = {};
+                  diaryEntries.forEach(entry => {
+                    entry.keywords.forEach(keyword => {
+                      keywordCounts[keyword] = (keywordCounts[keyword] || 0) + 1;
+                    });
+                  });
+                  return Object.entries(keywordCounts)
+                    .sort(([, a], [, b]) => b - a)
+                    .slice(0, 10)
+                    .map(([keyword, count]) => (
+                      <span
+                        key={keyword}
+                        className={`px-3 py-1 bg-gradient-to-r ${THEMES[appSettings.theme].primary} text-white rounded-full text-sm`}
+                      >
+                        {keyword} ({count})
+                      </span>
+                    ));
+                })()}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // 설정 화면
+  if (currentStep === 'settings') {
+    return (
+      <div className={`min-h-screen bg-gradient-to-br ${THEMES[appSettings.theme].bgClass} p-4`}>
+        <div className="max-w-2xl mx-auto">
+          <div className="bg-white bg-opacity-90 rounded-3xl shadow-2xl p-8">
+            <div className="flex items-center justify-between mb-8">
+              <button
+                onClick={() => setCurrentStep('mood')}
+                className="text-gray-600 hover:text-gray-800"
+              >
+                ← 뒤로
+              </button>
+              <h2 className={`text-3xl font-bold bg-gradient-to-r ${THEMES[appSettings.theme].primary} bg-clip-text text-transparent`}>
+                설정
+              </h2>
+              <div></div>
+            </div>
+
+            <div className="space-y-6">
+              <div>
+                <h3 className="font-bold text-lg mb-4">AI 이름 설정</h3>
+                <div className="grid grid-cols-3 gap-3">
+                  {AI_NAMES.map(name => (
+                    <button
+                      key={name}
+                      onClick={() => setAppSettings(prev => ({ ...prev, aiName: name }))}
+                      className={`py-3 px-4 rounded-lg border-2 transition-all ${
+                        appSettings.aiName === name
+                          ? `border-purple-500 bg-gradient-to-r ${THEMES[appSettings.theme].primary} text-white`
+                          : 'border-gray-300 hover:border-gray-400'
+                      }`}
+                    >
+                      {name}
+                    </button>
+                  ))}
+                </div>
               </div>
 
-              <div className="grid grid-cols-7 gap-1 mb-2">
-                {dayNames.map((day) => (
-                  <div key={day} className="p-2 text-center font-semibold text-gray-600">
-                    {day}
-                  </div>
-                ))}
+              <div>
+                <h3 className="font-bold text-lg mb-4">테마 설정</h3>
+                <div className="space-y-3">
+                  {Object.entries(THEMES).map(([key, theme]) => (
+                    <button
+                      key={key}
+                      onClick={() => setAppSettings(prev => ({ ...prev, theme: key as any }))}
+                      className={`w-full py-3 px-4 rounded-lg border-2 transition-all flex items-center justify-between ${
+                        appSettings.theme === key
+                          ? `border-purple-500 bg-gradient-to-r ${theme.primary} text-white`
+                          : 'border-gray-300 hover:border-gray-400'
+                      }`}
+                    >
+                      <span>{theme.name}</span>
+                      <div className={`w-6 h-6 rounded-full bg-gradient-to-r ${theme.primary}`}></div>
+                    </button>
+                  ))}
+                </div>
               </div>
 
-              <div className="grid grid-cols-7 gap-1 mb-4">
-                {calendarData.flat().map((day, index) => (
-                  <div
-                    key={index}
-                    className={`p-2 h-16 border rounded ${
-                      day.isCurrentMonth ? 'bg-white' : 'bg-gray-100'
-                    } ${day.isToday ? `ring-2 ring-${getCurrentTheme().accent}` : ''}`}
+              <div>
+                <h3 className="font-bold text-lg mb-4">음악 소스 설정</h3>
+                <div className="space-y-3">
+                  <button
+                    onClick={() => setAppSettings(prev => ({ ...prev, musicSource: 'spotify' }))}
+                    className={`w-full py-3 px-4 rounded-lg border-2 transition-all ${
+                      appSettings.musicSource === 'spotify'
+                        ? 'border-green-500 bg-green-50 text-green-700'
+                        : 'border-gray-300 hover:border-gray-400'
+                    }`}
                   >
-                    <div className="text-xs font-medium">{day.date.getDate()}</div>
-                    {day.entries.length > 0 && (
-                      <div className="flex flex-wrap gap-1 mt-1">
-                        {day.entries.map((entry) => (
-                          <div
-                            key={entry.id}
-                            className="relative group"
-                          >
-                            <div
-                              className="w-2 h-2 rounded-full cursor-pointer"
-                              style={{
-                                backgroundColor: entry.mood === 'good' ? '#10b981' : 
-                                               entry.mood === 'normal' ? '#f59e0b' : '#ef4444'
-                              }}
-                            />
-                            <div className="absolute bottom-full left-0 mb-2 w-40 p-2 bg-black text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity z-10">
-                              <p className="font-bold">{getMoodText(entry.mood)}: {entry.summary.substring(0, 30)}...</p>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                ))}
+                    Spotify만 사용
+                  </button>
+                  <button
+                    onClick={() => setAppSettings(prev => ({ ...prev, musicSource: 'youtube' }))}
+                    className={`w-full py-3 px-4 rounded-lg border-2 transition-all ${
+                      appSettings.musicSource === 'youtube'
+                        ? 'border-red-500 bg-red-50 text-red-700'
+                        : 'border-gray-300 hover:border-gray-400'
+                    }`}
+                  >
+                    YouTube만 사용
+                  </button>
+                  <button
+                    onClick={() => setAppSettings(prev => ({ ...prev, musicSource: 'both' }))}
+                    className={`w-full py-3 px-4 rounded-lg border-2 transition-all ${
+                      appSettings.musicSource === 'both'
+                        ? 'border-purple-500 bg-purple-50 text-purple-700'
+                        : 'border-gray-300 hover:border-gray-400'
+                    }`}
+                  >
+                    둘 다 사용 (추천)
+                  </button>
+                </div>
               </div>
 
-              <div className="flex justify-center space-x-6">
-                <div className="flex items-center space-x-2">
-                  <div className="w-3 h-3 bg-green-500 rounded-full"></div>
-                  <span className="text-xs">좋음</span>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <div className="w-3 h-3 bg-yellow-500 rounded-full"></div>
-                  <span className="text-xs">보통</span>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <div className="w-3 h-3 bg-red-500 rounded-full"></div>
-                  <span className="text-xs">나쁨</span>
+              <div>
+                <h3 className="font-bold text-lg mb-4">기타 설정</h3>
+                <div className="space-y-3">
+                  <button
+                    onClick={() => setCurrentStep('trash')}
+                    className="w-full py-3 px-4 rounded-lg border-2 border-gray-300 hover:border-gray-400 flex items-center justify-between"
+                  >
+                    <span>휴지통</span>
+                    <span className="text-gray-500">🗑️ {trashEntries.length}개</span>
+                  </button>
+                  <div className="p-4 bg-gray-50 rounded-lg">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-gray-700">AI 사용량</span>
+                      <span className="text-sm text-gray-500">{tokenUsage.toLocaleString()} / {MAX_FREE_TOKENS.toLocaleString()}</span>
+                    </div>
+                    <div className="w-full bg-gray-200 rounded-full h-2">
+                      <div
+                        className="bg-gradient-to-r from-purple-500 to-pink-500 h-2 rounded-full"
+                        style={{ width: `${(tokenUsage / MAX_FREE_TOKENS) * 100}%` }}
+                      ></div>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1879,588 +1742,462 @@ ${userMessages}
         </div>
       </div>
     );
-  };
+  }
 
-  const renderMyDiary = () => (
-    <div className={`min-h-screen bg-gradient-to-br ${getCurrentTheme().bgClass} p-4`}>
-      <div className="max-w-4xl mx-auto">
-        {renderUserProgress()}
-        {renderTokenBar()}
-
-        <div className="text-center mb-8">
-          <h2 className="text-3xl font-bold text-gray-800 mb-2">📖 내 일기장</h2>
-          <p className="text-gray-600">총 {diaryEntries.length}개의 기록이 있어요</p>
-        </div>
-
-        {diaryEntries.length === 0 ? (
-          <div className="text-center">
-            <div className="text-4xl mb-4">📝</div>
-            <p className="text-lg text-gray-600">아직 작성된 일기가 없어요</p>
-            <button
-              onClick={() => setCurrentStep('mood')}
-              className={`mt-4 px-6 py-3 bg-gradient-to-r ${getCurrentTheme().primary} text-white rounded-lg font-semibold hover:opacity-90 transition-all`}
-            >
-              첫 일기 작성하기
-            </button>
-          </div>
-        ) : (
-          <div className="space-y-6">
-            {diaryEntries.slice().reverse().map((entry) => (
-              <div key={entry.id} className="bg-white rounded-xl shadow-lg p-6">
-                <div className="flex items-center justify-between mb-4">
-                  <div className="flex items-center space-x-3">
-                    <span className="text-2xl">{getMoodEmoji(entry.mood)}</span>
-                    <div>
-                      <h3 className="font-bold text-gray-800">{entry.date} {entry.time}</h3>
-                      <p className="text-sm text-gray-600">기분: {getMoodText(entry.mood)}</p>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => moveToTrash(entry)}
-                    className="text-red-500 hover:text-red-700 p-2 rounded-lg hover:bg-red-50 transition-all"
-                    title="휴지통으로 이동"
-                  >
-                    🗑️
-                  </button>
-                </div>
-
-                <div className="space-y-4">
-                  <div>
-                    <h4 className="font-semibold text-gray-700 mb-2">요약</h4>
-                    <p className="text-gray-600">{entry.summary}</p>
-                  </div>
-
-                  {entry.keywords.length > 0 && (
-                    <div>
-                      <h4 className="font-semibold text-gray-700 mb-2">키워드</h4>
-                      <div className="flex flex-wrap gap-2">
-                        {entry.keywords.map((keyword, index) => (
-                          <span
-                            key={index}
-                            className={`px-2 py-1 bg-gradient-to-r ${getCurrentTheme().primary} text-white rounded-full text-xs`}
-                          >
-                            {keyword}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {entry.selectedEmotions.length > 0 && (
-                    <div>
-                      <h4 className="font-semibold text-gray-700 mb-2">선택한 감정</h4>
-                      <div className="flex flex-wrap gap-2">
-                        {entry.selectedEmotions.map((emotion, index) => (
-                          <span
-                            key={index}
-                            className="px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-sm"
-                          >
-                            {emotion}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {entry.musicPlayed.length > 0 && (
-                    <div>
-                      <h4 className="font-semibold text-gray-700 mb-2">들었던 음악</h4>
-                      <div className="space-y-2">
-                        {entry.musicPlayed.slice(0, 3).map((music, index) => (
-                          <div key={index} className="flex items-center space-x-3 p-2 bg-gray-50 rounded-lg">
-                            <img
-                              src={music.thumbnail}
-                              alt={music.title}
-                              className="w-10 h-10 object-cover rounded"
-                            />
-                            <div className="flex-1">
-                              <p className="text-sm font-medium text-gray-800">{music.title}</p>
-                              <p className="text-xs text-gray-600">{music.artist}</p>
-                            </div>
-                            <a
-                              href={music.url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className={`text-xs px-2 py-1 rounded ${music.source === 'spotify' ? 'text-green-500 hover:text-green-700' : 'text-red-500 hover:text-red-700'}`}
-                            >
-                              🎧 듣기
-                            </a>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {entry.actionItems.length > 0 && (
-                    <div>
-                      <h4 className="font-semibold text-gray-700 mb-2">액션 아이템</h4>
-                      <div className="space-y-1">
-                        {entry.actionItems.map((item, index) => (
-                          <div key={index} className="flex items-center space-x-2">
-                            <span className="text-green-500">✅</span>
-                            <span className="text-sm text-gray-600">{item}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        <div className="text-center mt-6">
-          <button
-            onClick={() => setCurrentStep('mood')}
-            className="px-6 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-all"
-          >
-            🏠 홈으로 돌아가기
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-
-  const renderMyMusic = () => (
-    <div className={`min-h-screen bg-gradient-to-br ${getCurrentTheme().bgClass} p-4`}>
-      <div className="max-w-4xl mx-auto">
-        {renderUserProgress()}
-        {renderTokenBar()}
-
-        <div className="text-center mb-8">
-          <h2 className="text-3xl font-bold text-gray-800 mb-2">🎵 내 음악</h2>
-          <p className="text-gray-600">총 {personalMusic.length}곡이 저장되어 있어요</p>
-        </div>
-
-        {personalMusic.length === 0 ? (
-          <div className="text-center">
-            <div className="text-4xl mb-4">🎶</div>
-            <p className="text-lg text-gray-600">아직 저장된 음악이 없어요</p>
-            <button
-              onClick={() => setCurrentStep('genre')}
-              className={`mt-4 px-6 py-3 bg-gradient-to-r ${getCurrentTheme().primary} text-white rounded-lg font-semibold hover:opacity-90 transition-all`}
-            >
-              음악 찾으러 가기
-            </button>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {personalMusic.slice().reverse().map((music) => (
-              <div key={music.id} className="bg-white rounded-xl shadow-lg p-6">
-                <div className="flex items-center space-x-4 mb-4">
-                  <img
-                    src={music.thumbnail}
-                    alt={music.title}
-                    className="w-16 h-16 object-cover rounded-lg"
-                  />
-                  <div className="flex-1">
-                    <h3 className="font-bold text-gray-800 text-sm line-clamp-2">{music.title}</h3>
-                    <p className="text-gray-600 text-xs">{music.artist}</p>
-                    {music.playCount && (
-                      <p className="text-xs text-purple-500 mt-1">{music.playCount}번 재생</p>
-                    )}
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <a
-                    href={music.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className={`w-full block py-2 px-4 ${music.source === 'spotify' ? 'bg-green-500 hover:bg-green-600' : 'bg-red-500 hover:bg-red-600'} text-white rounded-lg text-center text-sm transition-all`}
-                  >
-                    🎧 {music.source === 'spotify' ? 'Spotify에서 듣기' : 'YouTube에서 듣기'}
-                  </a>
-                  
-                  {music.preview_url && (
-                    <audio controls className="w-full">
-                      <source src={music.preview_url} type="audio/mpeg" />
-                      미리듣기를 지원하지 않는 브라우저입니다.
-                    </audio>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        <div className="text-center mt-6">
-          <button
-            onClick={() => setCurrentStep('mood')}
-            className="px-6 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-all"
-          >
-            🏠 홈으로 돌아가기
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-
-  const renderSearch = () => {
-    const searchResults = searchDiaries(searchQuery);
-
+  // 휴지통 화면
+  if (currentStep === 'trash') {
     return (
-      <div className={`min-h-screen bg-gradient-to-br ${getCurrentTheme().bgClass} p-4`}>
+      <div className={`min-h-screen bg-gradient-to-br ${THEMES[appSettings.theme].bgClass} p-4`}>
         <div className="max-w-4xl mx-auto">
-          {renderUserProgress()}
-          {renderTokenBar()}
+          <div className="bg-white bg-opacity-90 rounded-3xl shadow-2xl p-8">
+            <div className="flex items-center justify-between mb-8">
+              <button
+                onClick={() => setCurrentStep('settings')}
+                className="text-gray-600 hover:text-gray-800"
+              >
+                ← 뒤로
+              </button>
+              <h2 className={`text-3xl font-bold bg-gradient-to-r ${THEMES[appSettings.theme].primary} bg-clip-text text-transparent`}>
+                휴지통
+              </h2>
+              <button
+                onClick={() => {
+                  if (window.confirm('휴지통을 비우시겠습니까? 이 작업은 되돌릴 수 없습니다.')) {
+                    setTrashEntries([]);
+                  }
+                }}
+                className="text-red-600 hover:text-red-800"
+              >
+                비우기
+              </button>
+            </div>
 
-          <div className="text-center mb-8">
-            <h2 className="text-3xl font-bold text-gray-800 mb-2">🔍 일기 검색</h2>
-            <p className="text-gray-600">키워드로 지난 기록들을 찾아보세요</p>
-          </div>
-
-          <div className="bg-white rounded-xl shadow-lg p-6 mb-6">
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="검색할 키워드를 입력하세요 (감정, 음악, 내용 등)"
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 text-lg"
-            />
-          </div>
-
-          {searchQuery.trim() && (
-            <div className="mb-6">
-              <h3 className="text-xl font-bold mb-4 text-gray-800">
-                검색 결과: {searchResults.length}개
-              </h3>
-
-              {searchResults.length === 0 ? (
-                <div className="text-center bg-white rounded-xl shadow-lg p-8">
-                  <div className="text-4xl mb-4">😅</div>
-                  <p className="text-lg text-gray-600">검색 결과가 없어요</p>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {searchResults.map((entry) => (
-                    <div key={entry.id} className="bg-white rounded-xl shadow-lg p-6">
-                      <div className="flex items-center space-x-3 mb-3">
-                        <span className="text-2xl">{getMoodEmoji(entry.mood)}</span>
-                        <div>
-                          <h4 className="font-bold text-gray-800">{entry.date} {entry.time}</h4>
-                          <p className="text-sm text-gray-600">기분: {getMoodText(entry.mood)}</p>
+            {trashEntries.length === 0 ? (
+              <div className="text-center py-12 text-gray-500">
+                휴지통이 비어있습니다
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {trashEntries.map(entry => (
+                  <div key={entry.id} className="bg-gray-50 rounded-xl p-4">
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="text-2xl">{getMoodEmoji(entry.mood)}</span>
+                          <span className="font-medium">{entry.date} {entry.time}</span>
+                          {entry.deletedAt && (
+                            <span className="text-xs text-gray-500">
+                              삭제됨: {new Date(entry.deletedAt).toLocaleDateString('ko-KR')}
+                            </span>
+                          )}
                         </div>
-                      </div>
-
-                      <p className="text-gray-700 mb-3">{entry.summary}</p>
-
-                      {entry.selectedEmotions.length > 0 && (
-                        <div className="mb-3">
-                          <span className="text-sm font-semibold text-gray-600">감정: </span>
-                          {entry.selectedEmotions.slice(0, 3).join(', ')}
-                        </div>
-                      )}
-
-                      {entry.musicPlayed.length > 0 && (
-                        <div className="mb-3">
-                          <span className="text-sm font-semibold text-gray-600">음악: </span>
-                          {entry.musicPlayed[0].title}
-                        </div>
-                      )}
-
-                      {entry.keywords.length > 0 && (
-                        <div className="flex flex-wrap gap-2">
-                          {entry.keywords.map((keyword, index) => (
-                            <span
-                              key={index}
-                              className={`px-2 py-1 bg-gradient-to-r ${getCurrentTheme().primary} text-white rounded-full text-xs`}
-                            >
+                        <p className="text-gray-700 mb-2">{entry.summary}</p>
+                        <div className="flex flex-wrap gap-1">
+                          {entry.keywords.map((keyword, idx) => (
+                            <span key={idx} className="text-xs bg-gray-200 px-2 py-1 rounded-full">
                               {keyword}
                             </span>
                           ))}
                         </div>
-                      )}
+                      </div>
+                      <button
+                        onClick={() => restoreFromTrash(entry)}
+                        className="ml-4 text-blue-600 hover:text-blue-800"
+                      >
+                        복원
+                      </button>
                     </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          <div className="text-center">
-            <button
-              onClick={() => setCurrentStep('mood')}
-              className="px-6 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-all"
-            >
-              🏠 홈으로 돌아가기
-            </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </div>
     );
-  };
+  }
 
-  const renderTrash = () => (
-    <div className={`min-h-screen bg-gradient-to-br ${getCurrentTheme().bgClass} p-4`}>
-      <div className="max-w-4xl mx-auto">
-        {renderUserProgress()}
-        {renderTokenBar()}
+  // 캘린더 화면
+  if (currentStep === 'calendar') {
+    const days = getDaysInMonth(currentCalendarMonth);
+    const monthYear = currentCalendarMonth.toLocaleDateString('ko-KR', { year: 'numeric', month: 'long' });
 
-        <div className="text-center mb-8">
-          <h2 className="text-3xl font-bold text-gray-800 mb-2">🗑️ 휴지통</h2>
-          <p className="text-gray-600">삭제된 {trashEntries.length}개의 일기가 있어요</p>
-        </div>
+    return (
+      <div className={`min-h-screen bg-gradient-to-br ${THEMES[appSettings.theme].bgClass} p-4`}>
+        <div className="max-w-4xl mx-auto">
+          <div className="bg-white bg-opacity-90 rounded-3xl shadow-2xl p-8">
+            <div className="flex items-center justify-between mb-8">
+              <button
+                onClick={() => setCurrentStep('mood')}
+                className="text-gray-600 hover:text-gray-800"
+              >
+                ← 뒤로
+              </button>
+              <h2 className={`text-3xl font-bold bg-gradient-to-r ${THEMES[appSettings.theme].primary} bg-clip-text text-transparent`}>
+                감정 캘린더
+              </h2>
+              <div></div>
+            </div>
 
-        {trashEntries.length === 0 ? (
-          <div className="text-center bg-white rounded-xl shadow-lg p-8">
-            <div className="text-4xl mb-4">🗑️</div>
-            <p className="text-lg text-gray-600">휴지통이 비어있어요</p>
-          </div>
-        ) : (
-          <div className="space-y-4">
-            {trashEntries.slice().reverse().map((entry) => (
-              <div key={entry.id} className="bg-white rounded-xl shadow-lg p-6">
-                <div className="flex items-center justify-between mb-4">
-                  <div className="flex items-center space-x-3">
-                    <span className="text-2xl">{getMoodEmoji(entry.mood)}</span>
-                    <div>
-                      <h4 className="font-bold text-gray-800">{entry.date} {entry.time}</h4>
-                      <p className="text-sm text-gray-600">기분: {getMoodText(entry.mood)}</p>
-                      {entry.deletedAt && (
-                        <p className="text-xs text-red-500">삭제일: {new Date(entry.deletedAt).toLocaleString('ko-KR')}</p>
-                      )}
-                    </div>
+            <div className="flex items-center justify-between mb-6">
+              <button
+                onClick={() => changeMonth('prev')}
+                className="p-2 hover:bg-gray-100 rounded-lg"
+              >
+                ←
+              </button>
+              <h3 className="text-xl font-bold">{monthYear}</h3>
+              <button
+                onClick={() => changeMonth('next')}
+                className="p-2 hover:bg-gray-100 rounded-lg"
+              >
+                →
+              </button>
+            </div>
+
+            <div className="grid grid-cols-7 gap-2 mb-2">
+              {['일', '월', '화', '수', '목', '금', '토'].map(day => (
+                <div key={day} className="text-center text-sm font-medium text-gray-600">
+                  {day}
+                </div>
+              ))}
+            </div>
+
+            <div className="grid grid-cols-7 gap-2">
+              {days.map((day, index) => {
+                if (!day) {
+                  return <div key={index} />;
+                }
+                
+                const entries = getEntriesForDate(day);
+                const hasEntries = entries.length > 0;
+                const mood = hasEntries ? entries[0].mood : null;
+                
+                return (
+                  <div
+                    key={index}
+                    className={`aspect-square p-2 border rounded-lg ${
+                      hasEntries ? 'cursor-pointer hover:shadow-lg' : ''
+                    } ${
+                      mood === 'good' ? 'bg-green-100 border-green-300' :
+                      mood === 'normal' ? 'bg-yellow-100 border-yellow-300' :
+                      mood === 'bad' ? 'bg-red-100 border-red-300' :
+                      'bg-gray-50 border-gray-200'
+                    }`}
+                    onClick={() => {
+                      if (hasEntries) {
+                        setExpandedDiaryId(entries[0].id);
+                        setCurrentStep('myDiary');
+                      }
+                    }}
+                  >
+                    <div className="text-sm font-medium">{day.getDate()}</div>
+                    {hasEntries && (
+                      <div className="text-xl text-center mt-1">
+                        {getMoodEmoji(mood!)}
+                      </div>
+                    )}
                   </div>
-                  <div className="flex space-x-2">
-                    <button
-                      onClick={() => restoreFromTrash(entry)}
-                      className="px-3 py-1 bg-green-500 text-white rounded-lg text-sm hover:bg-green-600 transition-all"
-                    >
-                      복원
-                    </button>
-                    <button
-                      onClick={() => {
-                        if (window.confirm('정말로 영구 삭제하시겠습니까?')) {
-                          setTrashEntries(prev => prev.filter(e => e.id !== entry.id));
-                        }
-                      }}
-                      className="px-3 py-1 bg-red-500 text-white rounded-lg text-sm hover:bg-red-600 transition-all"
-                    >
-                      영구삭제
-                    </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // 검색 화면
+  if (currentStep === 'search') {
+    const searchResults = searchDiaries(searchQuery);
+    
+    return (
+      <div className={`min-h-screen bg-gradient-to-br ${THEMES[appSettings.theme].bgClass} p-4`}>
+        <div className="max-w-4xl mx-auto">
+          <div className="bg-white bg-opacity-90 rounded-3xl shadow-2xl p-8">
+            <div className="flex items-center justify-between mb-8">
+              <button
+                onClick={() => setCurrentStep('myDiary')}
+                className="text-gray-600 hover:text-gray-800"
+              >
+                ← 뒤로
+              </button>
+              <h2 className={`text-3xl font-bold bg-gradient-to-r ${THEMES[appSettings.theme].primary} bg-clip-text text-transparent`}>
+                일기 검색
+              </h2>
+              <div></div>
+            </div>
+
+            <div className="mb-6">
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="검색어를 입력하세요..."
+                className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:border-purple-500"
+                autoFocus
+              />
+            </div>
+
+            {searchQuery && (
+              <div className="text-sm text-gray-600 mb-4">
+                검색 결과: {searchResults.length}개
+              </div>
+            )}
+
+            <div className="space-y-4">
+              {searchResults.map(entry => (
+                <div
+                  key={entry.id}
+                  className="bg-gray-50 rounded-xl p-4 cursor-pointer hover:shadow-lg transition-all"
+                  onClick={() => {
+                    setExpandedDiaryId(entry.id);
+                    setCurrentStep('myDiary');
+                  }}
+                >
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-2xl">{getMoodEmoji(entry.mood)}</span>
+                    <span className="font-medium">{entry.date} {entry.time}</span>
+                  </div>
+                  <p className="text-gray-700 mb-2 line-clamp-2">{entry.summary}</p>
+                  <div className="flex flex-wrap gap-1">
+                    {entry.keywords.map((keyword, idx) => (
+                      <span
+                        key={idx}
+                        className={`text-xs px-2 py-1 rounded-full ${
+                          keyword.toLowerCase().includes(searchQuery.toLowerCase())
+                            ? `bg-gradient-to-r ${THEMES[appSettings.theme].primary} text-white`
+                            : 'bg-gray-200'
+                        }`}
+                      >
+                        {keyword}
+                      </span>
+                    ))}
                   </div>
                 </div>
-
-                <p className="text-gray-700">{entry.summary.substring(0, 100)}...</p>
-              </div>
-            ))}
-          </div>
-        )}
-
-        <div className="text-center mt-6">
-          <button
-            onClick={() => setCurrentStep('mood')}
-            className="px-6 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-all"
-          >
-            🏠 홈으로 돌아가기
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-
-  const renderSettings = () => (
-    <div className={`min-h-screen bg-gradient-to-br ${getCurrentTheme().bgClass} p-4`}>
-      <div className="max-w-4xl mx-auto">
-        {renderUserProgress()}
-        {renderTokenBar()}
-
-        <div className="text-center mb-8">
-          <h2 className="text-3xl font-bold text-gray-800 mb-2">⚙️ 설정</h2>
-          <p className="text-gray-600">앱을 개인화해보세요</p>
-        </div>
-
-        <div className="space-y-6">
-          {/* AI 이름 설정 */}
-          <div className="bg-white rounded-xl shadow-lg p-6">
-            <h3 className="text-xl font-bold mb-4 text-gray-800">AI 이름 설정</h3>
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-              {AI_NAMES.map((name) => (
-                <button
-                  key={name}
-                  onClick={() => handleAINameChange(name)}
-                  className={`p-3 rounded-lg font-medium transition-all border-2 ${
-                    appSettings.aiName === name
-                      ? `bg-gradient-to-r ${getCurrentTheme().primary} text-white border-purple-600 shadow-lg transform scale-105`
-                      : 'bg-gray-50 text-gray-700 border-gray-200 hover:border-purple-300 hover:bg-purple-50'
-                  }`}
-                >
-                  {name}
-                </button>
               ))}
             </div>
           </div>
-
-          {/* 테마 설정 */}
-          <div className="bg-white rounded-xl shadow-lg p-6">
-            <h3 className="text-xl font-bold mb-4 text-gray-800">테마 설정</h3>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {Object.entries(THEMES).map(([key, theme]) => (
-                <button
-                  key={key}
-                  onClick={() => setAppSettings(prev => ({ ...prev, theme: key as any }))}
-                  className={`p-4 rounded-lg border-2 transition-all ${
-                    appSettings.theme === key
-                      ? 'border-purple-500 bg-purple-50'
-                      : 'border-gray-200 hover:border-purple-300'
-                  }`}
-                >
-                  <div className={`w-full h-8 rounded mb-2 bg-gradient-to-r ${theme.primary}`}></div>
-                  <p className="font-medium text-gray-800">{theme.name}</p>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* 음악 소스 설정 */}
-          <div className="bg-white rounded-xl shadow-lg p-6">
-            <h3 className="text-xl font-bold mb-4 text-gray-800">음악 소스 설정</h3>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <button
-                onClick={() => setAppSettings(prev => ({ ...prev, musicSource: 'spotify' }))}
-                className={`p-4 rounded-lg border-2 transition-all ${
-                  appSettings.musicSource === 'spotify'
-                    ? 'border-green-500 bg-green-50'
-                    : 'border-gray-200 hover:border-green-300'
-                }`}
-              >
-                <div className="text-green-500 text-2xl mb-2">🎵</div>
-                <p className="font-medium">Spotify만</p>
-                <p className="text-sm text-gray-600">고음질 스트리밍</p>
-              </button>
-              <button
-                onClick={() => setAppSettings(prev => ({ ...prev, musicSource: 'youtube' }))}
-                className={`p-4 rounded-lg border-2 transition-all ${
-                  appSettings.musicSource === 'youtube'
-                    ? 'border-red-500 bg-red-50'
-                    : 'border-gray-200 hover:border-red-300'
-                }`}
-              >
-                <div className="text-red-500 text-2xl mb-2">📺</div>
-                <p className="font-medium">YouTube만</p>
-                <p className="text-sm text-gray-600">무료 뮤직비디오</p>
-              </button>
-              <button
-                onClick={() => setAppSettings(prev => ({ ...prev, musicSource: 'both' }))}
-                className={`p-4 rounded-lg border-2 transition-all ${
-                  appSettings.musicSource === 'both'
-                    ? 'border-purple-500 bg-purple-50'
-                    : 'border-gray-200 hover:border-purple-300'
-                }`}
-              >
-                <div className="text-purple-500 text-2xl mb-2">🎼</div>
-                <p className="font-medium">둘 다 사용</p>
-                <p className="text-sm text-gray-600">최대한 많은 곡</p>
-              </button>
-            </div>
-          </div>
-
-          {/* 알림 설정 */}
-          <div className="bg-white rounded-xl shadow-lg p-6">
-            <h3 className="text-xl font-bold mb-4 text-gray-800">알림 설정</h3>
-            <div className="flex items-center justify-between">
-              <span className="text-gray-700">일기 작성 알림</span>
-              <button
-                onClick={() => setAppSettings(prev => ({ ...prev, notifications: !prev.notifications }))}
-                className={`w-12 h-6 rounded-full transition-all ${
-                  appSettings.notifications ? 'bg-green-500' : 'bg-gray-300'
-                }`}
-              >
-                <div className={`w-5 h-5 bg-white rounded-full transition-all ${
-                  appSettings.notifications ? 'translate-x-6' : 'translate-x-0.5'
-                }`}></div>
-              </button>
-            </div>
-          </div>
-
-          {/* 데이터 관리 */}
-          <div className="bg-white rounded-xl shadow-lg p-6">
-            <h3 className="text-xl font-bold mb-4 text-gray-800">데이터 관리</h3>
-            <div className="space-y-3">
-              <div className="flex justify-between items-center">
-                <span className="text-gray-700">총 일기 수</span>
-                <span className="font-semibold text-gray-800">{diaryEntries.length}개</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-gray-700">저장된 음악</span>
-                <span className="font-semibold text-gray-800">{personalMusic.length}곡</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-gray-700">휴지통</span>
-                <span className="font-semibold text-gray-800">{trashEntries.length}개</span>
-              </div>
-              <button
-                onClick={() => {
-                  if (window.confirm('정말로 모든 데이터를 초기화하시겠습니까? 이 작업은 되돌릴 수 없습니다.')) {
-                    setDiaryEntries([]);
-                    setTrashEntries([]);
-                    setPersonalMusic([]);
-                    setUserProgress({
-                      level: 1,
-                      experience: 0,
-                      totalEntries: 0,
-                      consecutiveDays: 0,
-                      expToNext: 100,
-                      progressPercentage: 0,
-                      isPremium: false
-                    });
-                    setTokenUsage(0);
-                    alert('모든 데이터가 초기화되었습니다.');
-                  }
-                }}
-                className="w-full py-2 px-4 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-all"
-              >
-                모든 데이터 초기화
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <div className="text-center mt-6">
-          <button
-            onClick={() => setCurrentStep('mood')}
-            className="px-6 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-all"
-          >
-            🏠 홈으로 돌아가기
-          </button>
         </div>
       </div>
-    </div>
-  );
-
-  // 메인 렌더링
-  if (!isAuthenticated) {
-    return renderLogin();
+    );
   }
 
-  switch (currentStep) {
-    case 'mood':
-      return renderMoodSelection();
-    case 'chat':
-      return renderChat();
-    case 'genre':
-      return renderGenreSelection();
-    case 'music':
-      return renderMusicSelection();
-    case 'summary':
-      return renderSummary();
-    case 'stats':
-      return renderStats();
-    case 'myDiary':
-      return renderMyDiary();
-    case 'myMusic':
-      return renderMyMusic();
-    case 'search':
-      return renderSearch();
-    case 'trash':
-      return renderTrash();
-    case 'settings':
-      return renderSettings();
-    default:
-      return renderMoodSelection();
+  // 내 일기 화면
+  if (currentStep === 'myDiary') {
+    return (
+      <div className={`min-h-screen bg-gradient-to-br ${THEMES[appSettings.theme].bgClass} p-4`}>
+        <div className="max-w-4xl mx-auto">
+          <div className="bg-white bg-opacity-90 rounded-3xl shadow-2xl p-8">
+            <div className="flex items-center justify-between mb-8">
+              <button
+                onClick={() => setCurrentStep('mood')}
+                className="text-gray-600 hover:text-gray-800"
+              >
+                ← 뒤로
+              </button>
+              <h2 className={`text-3xl font-bold bg-gradient-to-r ${THEMES[appSettings.theme].primary} bg-clip-text text-transparent`}>
+                내 일기
+              </h2>
+              <button
+                onClick={() => setCurrentStep('search')}
+                className="text-gray-600 hover:text-gray-800"
+              >
+                🔍 검색
+              </button>
+            </div>
+
+            {diaryEntries.length === 0 ? (
+              <div className="text-center py-12 text-gray-500">
+                아직 작성한 일기가 없습니다.
+                <br />
+                첫 일기를 작성해보세요!
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {diaryEntries.map(entry => (
+                  <div
+                    key={entry.id}
+                    className={`bg-gray-50 rounded-xl p-4 cursor-pointer hover:shadow-lg transition-all ${
+                      expandedDiaryId === entry.id ? 'shadow-lg' : ''
+                    }`}
+                    onClick={() => setExpandedDiaryId(expandedDiaryId === entry.id ? null : entry.id)}
+                  >
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="text-2xl">{getMoodEmoji(entry.mood)}</span>
+                          <span className="font-medium">{entry.date} {entry.time}</span>
+                          <span className="text-xs bg-purple-100 text-purple-600 px-2 py-1 rounded-full">
+                            +{entry.experienceGained} EXP
+                          </span>
+                        </div>
+                        <p className="text-gray-700 mb-2">{entry.summary}</p>
+                        <div className="flex flex-wrap gap-1 mb-2">
+                          {entry.keywords.map((keyword, idx) => (
+                            <span key={idx} className="text-xs bg-gray-200 px-2 py-1 rounded-full">
+                              {keyword}
+                            </span>
+                          ))}
+                        </div>
+                        {entry.selectedEmotions.length > 0 && (
+                          <div className="flex flex-wrap gap-1 mb-2">
+                            {entry.selectedEmotions.map((emotion, idx) => (
+                              <span
+                                key={idx}
+                                className={`text-xs px-2 py-1 rounded-full bg-gradient-to-r ${THEMES[appSettings.theme].primary} text-white`}
+                              >
+                                {emotion}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        {expandedDiaryId === entry.id && (
+                          <div className="mt-4 pt-4 border-t border-gray-200">
+                            {entry.actionItems.length > 0 && (
+                              <div className="mb-4">
+                                <h4 className="font-medium mb-2">액션 아이템</h4>
+                                <div className="space-y-1">
+                                  {entry.actionItems.map((item, idx) => (
+                                    <div key={idx} className="flex items-start space-x-2 text-sm">
+                                      <span className="text-purple-500">•</span>
+                                      <span>{item}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                            {entry.musicPlayed.length > 0 && (
+                              <div className="mb-4">
+                                <h4 className="font-medium mb-2">들은 음악</h4>
+                                <div className="space-y-2">
+                                  {entry.musicPlayed.map((music, idx) => (
+                                    <div key={idx} className="bg-white p-3 rounded-lg">
+                                      <div className="font-medium text-sm">{music.title}</div>
+                                      <div className="text-xs text-gray-600">{music.artist}</div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                            <div className="mb-4">
+                              <h4 className="font-medium mb-2">대화 내용</h4>
+                              <div className="space-y-2 max-h-60 overflow-y-auto">
+                                {entry.chatMessages.map((msg, idx) => (
+                                  <div
+                                    key={idx}
+                                    className={`p-3 rounded-lg text-sm ${
+                                      msg.role === 'user'
+                                        ? 'bg-purple-100 ml-8'
+                                        : 'bg-gray-100 mr-8'
+                                    }`}
+                                  >
+                                    {msg.content}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (window.confirm('이 일기를 삭제하시겠습니까?')) {
+                            moveToTrash(entry);
+                          }
+                        }}
+                        className="ml-4 text-red-600 hover:text-red-800"
+                      >
+                        삭제
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
   }
+
+  // 내 음악 화면
+  if (currentStep === 'myMusic') {
+    const sortedMusic = [...personalMusic].sort((a, b) => (b.playCount || 0) - (a.playCount || 0));
+
+    return (
+      <div className={`min-h-screen bg-gradient-to-br ${THEMES[appSettings.theme].bgClass} p-4`}>
+        <div className="max-w-4xl mx-auto">
+          <div className="bg-white bg-opacity-90 rounded-3xl shadow-2xl p-8">
+            <div className="flex items-center justify-between mb-8">
+              <button
+                onClick={() => setCurrentStep('mood')}
+                className="text-gray-600 hover:text-gray-800"
+              >
+                ← 뒤로
+              </button>
+              <h2 className={`text-3xl font-bold bg-gradient-to-r ${THEMES[appSettings.theme].primary} bg-clip-text text-transparent`}>
+                내 음악
+              </h2>
+              <div className="text-sm text-gray-600">
+                {personalMusic.length}곡
+              </div>
+            </div>
+
+            {personalMusic.length === 0 ? (
+              <div className="text-center py-12 text-gray-500">
+                아직 저장된 음악이 없습니다.
+                <br />
+                일기를 작성하며 음악을 추가해보세요!
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {sortedMusic.map((music) => (
+                  <div
+                    key={music.id}
+                    className="bg-gray-50 rounded-xl p-4 flex items-center space-x-4 hover:shadow-lg transition-all"
+                  >
+                    {music.thumbnail && (
+                      <img
+                        src={music.thumbnail}
+                        alt={music.title}
+                        className="w-16 h-16 rounded-lg object-cover"
+                      />
+                    )}
+                    <div className="flex-1">
+                      <h3 className="font-bold">{music.title}</h3>
+                      <p className="text-sm text-gray-600">{music.artist}</p>
+                      {music.album && (
+                        <p className="text-xs text-gray-500">{music.album}</p>
+                      )}
+                    </div>
+                    <div className="text-right">
+                      <div className="text-sm text-gray-600">
+                        재생 {music.playCount || 0}회
+                      </div>
+                      <a
+                        href={music.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className={`text-sm ${
+                          music.source === 'spotify' ? 'text-green-600' : 'text-red-600'
+                        } hover:underline`}
+                      >
+                        {music.source === 'spotify' ? 'Spotify' : 'YouTube'}에서 듣기
+                      </a>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return null;
 };
 
 export default App;
