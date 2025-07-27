@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, memo } from 'react';
 import { auth, db, googleProvider } from './firebase';
 import {
   signInWithEmailAndPassword,
@@ -16,12 +16,10 @@ import {
   updateDoc,
   deleteDoc,
   query,
-  orderBy,
   where,
   serverTimestamp,
   Timestamp
 } from 'firebase/firestore';
-import { searchMusicByEmotion } from './musicData';
 
 // 기본 설정
 const APP_THEME = {
@@ -130,7 +128,7 @@ const MUSIC_GENRES = [
   { id: 'rock', name: '록', emoji: '🤘' }
 ];
 
-const App: React.FC = () => {
+const App: React.FC = memo(() => {
   // 상태 관리
   const [user, setUser] = useState<User | null>(null);
   const [isAuthMode, setIsAuthMode] = useState<'login' | 'register'>('login');
@@ -179,6 +177,15 @@ const App: React.FC = () => {
   const SPOTIFY_CLIENT_ID = process.env.REACT_APP_SPOTIFY_CLIENT_ID;
   const SPOTIFY_CLIENT_SECRET = process.env.REACT_APP_SPOTIFY_CLIENT_SECRET;
   const YOUTUBE_API_KEY = process.env.REACT_APP_YOUTUBE_API_KEY;
+
+  // React StrictMode 이중 렌더링 방지
+  useEffect(() => {
+    // 클린업 함수로 메모리 누수 방지
+    return () => {
+      setChatMessages([]);
+      setRecommendedMusicForSummary([]);
+    };
+  }, [currentStep]);
 
   // Firebase 인증 상태 감지
   useEffect(() => {
@@ -1798,6 +1805,6 @@ ${userMessages}
     case 'settings': return renderSettings();
     default: return renderMoodSelection();
   }
-};
+});
 
 export default App;
