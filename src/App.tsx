@@ -768,11 +768,34 @@ ${hasRecommendedMusic ? '이미 음악을 추천했으므로 음악 얘기는 �
         if (isGenreBased || searchQuery.includes('감정맞춤')) {
           // 사용자 선호 장르 + 현재 감정 기반 검색
           const genreQueries = userGenres.map(genreId => {
-            const genre = MUSIC_GENRES.find(g => g.id === genreId);
-            const moodKeyword = currentMood === 'good' ? 'upbeat happy' : 
-                              currentMood === 'bad' ? 'sad emotional' : 'chill relaxing';
-            return `${genre?.name || genreId} ${moodKeyword} popular`;
-          });
+  const genre = MUSIC_GENRES.find(g => g.id === genreId);
+  const moodKeyword = currentMood === 'good' ? 'upbeat happy' : 
+                    currentMood === 'bad' ? 'sad emotional' : 'chill relaxing';
+  
+  // musicData에 없는 장르는 각각 맞춤 키워드 추가
+let extraKeyword = 'popular';
+switch(genreId) {
+  case 'ballad':
+    extraKeyword = 'korean ballad 발라드 2024';
+    break;
+  case 'indie':
+    extraKeyword = 'korean indie 인디 2024';
+    break;
+  case 'classic':
+    extraKeyword = 'classical music piano violin';
+    break;
+  case 'jazz':
+    extraKeyword = 'jazz smooth modern';
+    break;
+  case 'rock':
+    extraKeyword = 'rock band guitar 2024';
+    break;
+  default:
+    extraKeyword = 'popular';
+}
+  
+  return `${genre?.name || genreId} ${moodKeyword} ${extraKeyword}`;
+});
 
           // 각 장르별로 검색해서 섞기
           for (const query of genreQueries) {
