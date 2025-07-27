@@ -3,7 +3,13 @@
     "allow": [
       "Bash(npm run build:*)",
       "Bash(npx tsc:*)",
-      "Bash(npx eslint:*)"
+      "Bash(npx eslint:*)",
+      "Bash(npm start)",
+      "Bash(wc:*)",
+      "Bash(npm run:*)",
+      "Bash(true)",
+      "Bash(firebase login:*)",
+      "Bash(taskkill:*)"
     ],
     "deny": []
   }
