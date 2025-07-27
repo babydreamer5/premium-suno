@@ -769,32 +769,37 @@ ${hasRecommendedMusic ? '이미 음악을 추천했으므로 음악 얘기는 �
           // 사용자 선호 장르 + 현재 감정 기반 검색
           const genreQueries = userGenres.map(genreId => {
   const genre = MUSIC_GENRES.find(g => g.id === genreId);
-  const moodKeyword = currentMood === 'good' ? 'upbeat happy' : 
-                    currentMood === 'bad' ? 'sad emotional' : 'chill relaxing';
   
   // musicData에 없는 장르는 각각 맞춤 키워드 추가
-let extraKeyword = 'popular';
-switch(genreId) {
-  case 'ballad':
-    extraKeyword = 'korean ballad 발라드 2024';
-    break;
-  case 'indie':
-    extraKeyword = 'korean indie 인디 2024';
-    break;
-  case 'classic':
-    extraKeyword = 'classical music piano violin';
-    break;
-  case 'jazz':
-    extraKeyword = 'jazz smooth modern';
-    break;
-  case 'rock':
-    extraKeyword = 'rock band guitar 2024';
-    break;
-  default:
-    extraKeyword = 'popular';
-}
+  let extraKeyword = 'popular';
+  switch(genreId) {
+    case 'ballad':
+      extraKeyword = 'korean ballad 발라드 2024';
+      break;
+    case 'indie':
+      extraKeyword = 'korean indie 인디 2024';
+      break;
+    case 'classic':
+      extraKeyword = 'classical music piano violin';
+      break;
+    case 'jazz':
+      extraKeyword = 'jazz smooth modern';
+      break;
+    case 'rock':
+      extraKeyword = 'rock band guitar 2024';
+      break;
+    default:
+      extraKeyword = 'popular';
+  }
   
-  return `${genre?.name || genreId} ${moodKeyword} ${extraKeyword}`;
+  // 사용자가 특정 곡을 요청했을 때는 감정 키워드 제외
+  if (isUserRequest) {
+    return `${genre?.name || genreId} ${extraKeyword}`;
+  } else {
+    const moodKeyword = currentMood === 'good' ? 'upbeat happy' : 
+                      currentMood === 'bad' ? 'sad emotional' : 'chill relaxing';
+    return `${genre?.name || genreId} ${moodKeyword} ${extraKeyword}`;
+  }
 });
 
           // 각 장르별로 검색해서 섞기
@@ -1321,7 +1326,7 @@ ${userMessages}
           </div>      
           <div className="flex flex-col items-center">      
             <button onClick={() => handleMoodSelect('normal')} className="mb-4 transform hover:scale-110 transition-all duration-300 hover:drop-shadow-lg">      
-              <div className="w-24 h-24 rounded-full bg-blue-300 flex items-center justify-center shadow-lg"><div className="text-4xl">😐</div></div>      
+              <div className="w-24 h-24 rounded-full bg-blue-300 flex items-center justify-center shadow-lg"><div className="text-4xl">😮‍💨</div></div>      
             </button>      
             <span className="text-lg font-semibold text-gray-700">그냥 뭐..</span>      
           </div>      
