@@ -10,7 +10,9 @@
       "Bash(true)",
       "Bash(firebase login:*)",
       "Bash(taskkill:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(cmd /c:*)",
+      "Bash(set PORT=3001)"
     ],
     "deny": []
   }

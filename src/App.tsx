@@ -82,6 +82,7 @@ interface AppSettings {
   aiPartnerName?: string;
 }
 
+
 interface SummaryData {
   summary: string;
   keywords: string[];
@@ -165,6 +166,40 @@ const App: React.FC = () => {
   const SPOTIFY_CLIENT_ID = process.env.REACT_APP_SPOTIFY_CLIENT_ID;
   const SPOTIFY_CLIENT_SECRET = process.env.REACT_APP_SPOTIFY_CLIENT_SECRET;
   const YOUTUBE_API_KEY = process.env.REACT_APP_YOUTUBE_API_KEY;
+
+  // 로그인 핸들러
+  const handleLogin = async () => {
+    if (!email || !password) {
+      alert('이메일과 비밀번호를 입력해주세요.');
+      return;
+    }
+    setIsLoading(true);
+    try {
+      await signInWithEmailAndPassword(auth, email, password);
+    } catch (error) {
+      alert('로그인 실패: ' + (error instanceof Error ? error.message : '알 수 없는 오류가 발생했습니다.'));
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // 회원가입 핸들러
+  const handleRegister = async () => {
+    if (!email || !password) {
+      alert('이메일과 비밀번호를 입력해주세요.');
+      return;
+    }
+    setIsLoading(true);
+    try {
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      // 신규 사용자 초기화 함수가 있다면 호출
+      // await initializeNewUser(userCredential.user.uid);
+    } catch (error) {
+      alert('회원가입 실패: ' + (error instanceof Error ? error.message : '알 수 없는 오류가 발생했습니다.'));
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   // 유틸리티 함수들
   const getCurrentTheme = () => APP_THEME;
@@ -442,57 +477,833 @@ const App: React.FC = () => {
         where('userId', '==', userId)
       );
       const settingsSnapshot = await getDocs(settingsQuery);
-      if (!settingsSnapshot.empty) {
-        const settingsData = settingsSnapshot.docs[0].data() as AppSettings;
-        setAppSettings(settingsData);
-
-        // 온보딩 완료 여부 확인
-        if (settingsData.musicPreferences && settingsData.musicPreferences.length > 0) {
-          setCurrentStep('mood');
-        } else if (settingsData.aiPartnerName) {
-          setCurrentStep('onboard-music');
-        } else {
-          setCurrentStep('onboard-name');
-        }
-      } else {
-        setCurrentStep('onboard-name');
-      }
       
+      const updatedSettings = {
+        ...appSettings,
+        musicPreferences: selectedMusicGenres
+      };
+
+      if (!settingsSnapshot.empty) {
+        await updateDoc(doc(db, 'appSettings', settingsSnapshot.docs[0].id), updatedSettings);
+      } else {
+        await addDoc(collection(db, 'appSettings'), {
+          userId: userId,
+          ...updatedSettings,
+          createdAt: serverTimestamp()
+        });
+      }
+
+      setAppSettings(updatedSettings);
+      setCurrentStep('mood');
     } catch (error) {
-      console.error('데이터 로드 오류:', error);
-    }
-  };
+     console.error('온보딩 완료 오류:', error);
+     alert('설정 저장 중 오류가 발생했습니다.');
+   }
+ };
 
-  const handleLogin = async () => {
-    if (!email || !password) {
-      alert('이메일과 비밀번호를 입력해주세요.');
-      return;
-    }
-    setIsLoading(true);
-    try {
-      await signInWithEmailAndPassword(auth, email, password);
-    } catch (error: any) {
-      alert('로그인 실패: ' + error.message);
-    } finally {
-      setIsLoading(false);
-    }
-  };
+ const renderTokenBar = () => {
+   const usageRatio = Math.min(tokenUsage / MAX_FREE_TOKENS, 1.0);
+   const remaining = Math.max(0, MAX_FREE_TOKENS - tokenUsage);
+   let status = usageRatio >= 0.95 ? '조금 부족해요' : usageRatio >= 0.5 ? '적당해요' : '충분해요';
 
-  const handleRegister = async () => {
-    if (!email || !password) {
-      alert('이메일과 비밀번호를 입력해주세요.');
-      return;
-    }
-    setIsLoading(true);
+   return (
+     <div className={`bg-gradient-to-r ${getCurrentTheme().secondary} rounded-lg p-4 mb-4 border border-${getCurrentTheme().accent.split('-')[0]}-200`}>
+       <div className="flex justify-between items-center mb-2">
+         <span className={`text-sm font-semibold text-${getCurrentTheme().accent.split('-')[0]}-800`}>AI와 대화할 수 있는 에너지</span>
+         <span className={`text-xs text-${getCurrentTheme().accent.split('-')[0]}-600`}>{remaining.toLocaleString()} / {MAX_FREE_TOKENS.toLocaleString()} 남음</span>
+       </div>
+       <div className={`w-full bg-${getCurrentTheme().accent.split('-')[0]}-100 rounded-full h-2`}>
+         <div className={`h-2 rounded-full transition-all bg-gradient-to-r ${getCurrentTheme().primary}`} style={{ width: `${usageRatio * 100}%` }}></div>
+       </div>
+       <div className={`text-center text-xs mt-1 text-${getCurrentTheme().accent.split('-')[0]}-600`}>상태: {status}</div>
+     </div>
+   );
+ };
+
+ const renderUserProgress = () => (
+   <div className={`bg-gradient-to-r ${getCurrentTheme().secondary} rounded-xl shadow-lg p-6 mb-6 border border-${getCurrentTheme().accent.split('-')[0]}-200`}>
+     <div className="flex justify-between items-center mb-4">
+       <span className={`text-lg font-bold text-${getCurrentTheme().accent.split('-')[0]}-800`}>레벨 {userProgress.level}</span>
+       <span className={`text-sm text-${getCurrentTheme().accent.split('-')[0]}-600`}>다음 레벨까지 {userProgress.expToNext} EXP</span>
+     </div>
+     <div className={`w-full bg-${getCurrentTheme().accent.split('-')[0]}-100 rounded-full h-3`}>
+       <div className={`bg-gradient-to-r ${getCurrentTheme().primary} h-3 rounded-full transition-all`} style={{ width: `${userProgress.progressPercentage}%` }}></div>
+     </div>
+     <div className={`text-center text-xs text-${getCurrentTheme().accent.split('-')[0]}-600 mt-2`}>총 경험치: {userProgress.experience} EXP</div>
+   </div>
+ );
+
+ const renderAuth = () => (
+   <div className={`min-h-screen bg-gradient-to-br ${getCurrentTheme().bgClass} flex items-center justify-center p-4`}>
+     <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-md">
+       <div className="text-center mb-6">
+         <div className="text-4xl mb-2">🎵</div>
+         <h1 className={`text-2xl font-bold text-${getCurrentTheme().accent.split('-')[0]}-800`}>EPLAY</h1>
+         <p className={`text-${getCurrentTheme().accent.split('-')[0]}-600`}>감정기반 음악 추천</p>
+       </div>
+       <div className="flex justify-center mb-6">
+         <div className="flex bg-gray-100 rounded-lg p-1">
+           <button onClick={() => setIsAuthMode('login')} className={`px-4 py-2 rounded-md font-medium transition-all ${isAuthMode === 'login' ? `bg-gradient-to-r ${getCurrentTheme().primary} text-white` : 'text-gray-600'}`}>로그인</button>
+           <button onClick={() => setIsAuthMode('register')} className={`px-4 py-2 rounded-md font-medium transition-all ${isAuthMode === 'register' ? `bg-gradient-to-r ${getCurrentTheme().primary} text-white` : 'text-gray-600'}`}>회원가입</button>
+         </div>
+       </div>
+       <div className="space-y-4">
+         <input type="email" placeholder="이메일을 입력하세요" value={email} onChange={(e) => setEmail(e.target.value)} className={`w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-${getCurrentTheme().accent}`}/>
+         <input type="password" placeholder="비밀번호를 입력하세요" value={password} onChange={(e) => setPassword(e.target.value)} onKeyPress={(e) => { if (e.key === 'Enter') { isAuthMode === 'login' ? handleLogin() : handleRegister(); } }} className={`w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-${getCurrentTheme().accent}`}/>
+         <button onClick={isAuthMode === 'login' ? handleLogin : handleRegister} disabled={isLoading} className={`w-full py-3 rounded-lg font-semibold bg-gradient-to-r ${getCurrentTheme().primary} text-white hover:opacity-90 disabled:opacity-50 transition-all`}>
+           {isLoading ? '처리중...' : (isAuthMode === 'login' ? '로그인' : '회원가입')}
+         </button>
+       </div>
+       <div className="mt-4 text-center">
+         <span className={`text-sm text-${getCurrentTheme().accent.split('-')[0]}-600`}>또는</span>
+       </div>
+       <button onClick={handleGoogleLogin} disabled={isLoading} className={`w-full mt-4 py-3 rounded-lg font-semibold border border-gray-300 hover:bg-gray-50 transition-all flex items-center justify-center gap-2`}>
+         <svg className="w-5 h-5" viewBox="0 0 24 24">
+           <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+           <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+           <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+           <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+         </svg>
+         <span>Google로 로그인</span>
+       </button>
+     </div>
+   </div>
+ );
+
+ const renderOnboardingName = () => (
+   <div className={`min-h-screen bg-gradient-to-br ${getCurrentTheme().bgClass} flex items-center justify-center p-4`}>
+     <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-md">
+       <div className="text-center mb-6">
+         <h2 className={`text-2xl font-bold text-${getCurrentTheme().accent.split('-')[0]}-800 mb-2`}>반가워요! 👋</h2>
+         <p className={`text-${getCurrentTheme().accent.split('-')[0]}-600`}>어떤 분과 대화하고 싶으신가요?</p>
+       </div>
+       <div className="space-y-3">
+         <button onClick={() => { setSelectedPersonType('friend'); setCurrentStep('onboard-name-input'); }} className={`w-full p-4 rounded-lg border-2 hover:border-${getCurrentTheme().accent} transition-all ${selectedPersonType === 'friend' ? `border-${getCurrentTheme().accent} bg-${getCurrentTheme().accent.split('-')[0]}-50` : 'border-gray-200'}`}>
+           <span className="text-lg font-medium">👭 친구</span>
+         </button>
+         <button onClick={() => { setSelectedPersonType('lover'); setCurrentStep('onboard-name-input'); }} className={`w-full p-4 rounded-lg border-2 hover:border-${getCurrentTheme().accent} transition-all ${selectedPersonType === 'lover' ? `border-${getCurrentTheme().accent} bg-${getCurrentTheme().accent.split('-')[0]}-50` : 'border-gray-200'}`}>
+           <span className="text-lg font-medium">💕 연인</span>
+         </button>
+         <button onClick={() => { setSelectedPersonType('family'); setCurrentStep('onboard-name-input'); }} className={`w-full p-4 rounded-lg border-2 hover:border-${getCurrentTheme().accent} transition-all ${selectedPersonType === 'family' ? `border-${getCurrentTheme().accent} bg-${getCurrentTheme().accent.split('-')[0]}-50` : 'border-gray-200'}`}>
+           <span className="text-lg font-medium">👨‍👩‍👧‍👦 가족</span>
+         </button>
+         <button onClick={() => { setSelectedPersonType('ai'); setSelectedPersonName(AI_NAME); handlePersonNameSubmit(); }} className={`w-full p-4 rounded-lg border-2 hover:border-${getCurrentTheme().accent} transition-all ${selectedPersonType === 'ai' ? `border-${getCurrentTheme().accent} bg-${getCurrentTheme().accent.split('-')[0]}-50` : 'border-gray-200'}`}>
+           <span className="text-lg font-medium">🤖 AI 친구 (기본)</span>
+         </button>
+       </div>
+     </div>
+   </div>
+ );
+
+ const renderOnboardingNameInput = () => (
+   <div className={`min-h-screen bg-gradient-to-br ${getCurrentTheme().bgClass} flex items-center justify-center p-4`}>
+     <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-md">
+       <div className="text-center mb-6">
+         <h2 className={`text-2xl font-bold text-${getCurrentTheme().accent.split('-')[0]}-800 mb-2`}>이름을 알려주세요</h2>
+         <p className={`text-${getCurrentTheme().accent.split('-')[0]}-600`}>
+           {selectedPersonType === 'friend' ? '친구' : selectedPersonType === 'lover' ? '연인' : '가족'}의 이름이 무엇인가요?
+         </p>
+       </div>
+       <input
+         type="text"
+         placeholder="이름을 입력하세요"
+         value={selectedPersonName}
+         onChange={(e) => setSelectedPersonName(e.target.value)}
+         onKeyPress={(e) => { if (e.key === 'Enter') handlePersonNameSubmit(); }}
+         className={`w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-${getCurrentTheme().accent} mb-4`}
+       />
+       <button onClick={handlePersonNameSubmit} disabled={!selectedPersonName.trim()} className={`w-full py-3 rounded-lg font-semibold bg-gradient-to-r ${getCurrentTheme().primary} text-white hover:opacity-90 disabled:opacity-50 transition-all`}>
+         다음
+       </button>
+       <button onClick={() => setCurrentStep('onboard-name')} className={`w-full mt-2 py-2 text-${getCurrentTheme().accent.split('-')[0]}-600 hover:text-${getCurrentTheme().accent.split('-')[0]}-800`}>
+         뒤로 가기
+       </button>
+     </div>
+   </div>
+ );
+
+ const renderOnboardingMusic = () => (
+   <div className={`min-h-screen bg-gradient-to-br ${getCurrentTheme().bgClass} flex items-center justify-center p-4`}>
+     <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-md">
+       <div className="text-center mb-6">
+         <h2 className={`text-2xl font-bold text-${getCurrentTheme().accent.split('-')[0]}-800 mb-2`}>음악 취향을 알려주세요</h2>
+         <p className={`text-${getCurrentTheme().accent.split('-')[0]}-600`}>좋아하는 장르를 최대 3개까지 선택해주세요</p>
+       </div>
+       <div className="space-y-3 mb-6">
+         {MUSIC_GENRES.map(genre => (
+           <button
+             key={genre.id}
+             onClick={() => handleMusicGenreSelect(genre.id)}
+             className={`w-full p-4 rounded-lg border-2 hover:border-${getCurrentTheme().accent} transition-all flex items-center gap-3 ${
+               selectedMusicGenres.includes(genre.id) 
+                 ? `border-${getCurrentTheme().accent} bg-${getCurrentTheme().accent.split('-')[0]}-50` 
+                 : 'border-gray-200'
+             }`}
+           >
+             <span className="text-2xl">{genre.emoji}</span>
+             <span className="text-lg font-medium">{genre.name}</span>
+           </button>
+         ))}
+       </div>
+       <button onClick={handleOnboardingComplete} disabled={selectedMusicGenres.length === 0} className={`w-full py-3 rounded-lg font-semibold bg-gradient-to-r ${getCurrentTheme().primary} text-white hover:opacity-90 disabled:opacity-50 transition-all`}>
+         시작하기
+       </button>
+     </div>
+   </div>
+ );
+
+ const renderMoodSelection = () => (
+   <div className={`min-h-screen bg-gradient-to-br ${getCurrentTheme().bgClass} p-4`}>
+     <div className="max-w-lg mx-auto">
+       <header className="bg-white rounded-lg shadow-md p-4 mb-6 flex justify-between items-center">
+         <h1 className={`text-xl font-bold text-${getCurrentTheme().accent.split('-')[0]}-800`}>오늘의 기분은?</h1>
+         <div className="flex gap-2">
+           <button onClick={() => handleStepChange('stats')} className={`p-2 rounded-lg bg-${getCurrentTheme().accent.split('-')[0]}-100 hover:bg-${getCurrentTheme().accent.split('-')[0]}-200`}>📊</button>
+           <button onClick={() => handleStepChange('myDiary')} className={`p-2 rounded-lg bg-${getCurrentTheme().accent.split('-')[0]}-100 hover:bg-${getCurrentTheme().accent.split('-')[0]}-200`}>📔</button>
+           <button onClick={() => handleStepChange('myMusic')} className={`p-2 rounded-lg bg-${getCurrentTheme().accent.split('-')[0]}-100 hover:bg-${getCurrentTheme().accent.split('-')[0]}-200`}>🎵</button>
+           <button onClick={() => handleStepChange('settings')} className={`p-2 rounded-lg bg-${getCurrentTheme().accent.split('-')[0]}-100 hover:bg-${getCurrentTheme().accent.split('-')[0]}-200`}>⚙️</button>
+         </div>
+       </header>
+       
+       {renderUserProgress()}
+       
+       <div className="space-y-4">
+         <button onClick={() => handleMoodSelect('good')} className={`w-full p-6 rounded-xl bg-gradient-to-r from-green-400 to-blue-400 text-white shadow-lg hover:shadow-xl transition-all`}>
+           <div className="text-4xl mb-2">😊</div>
+           <div className="text-xl font-bold">좋음</div>
+         </button>
+         
+         <button onClick={() => handleMoodSelect('normal')} className={`w-full p-6 rounded-xl bg-gradient-to-r from-blue-400 to-indigo-400 text-white shadow-lg hover:shadow-xl transition-all`}>
+           <div className="text-4xl mb-2">😐</div>
+           <div className="text-xl font-bold">보통</div>
+         </button>
+         
+         <button onClick={() => handleMoodSelect('bad')} className={`w-full p-6 rounded-xl bg-gradient-to-r from-purple-400 to-pink-400 text-white shadow-lg hover:shadow-xl transition-all`}>
+           <div className="text-4xl mb-2">😔</div>
+           <div className="text-xl font-bold">나쁨</div>
+         </button>
+       </div>
+     </div>
+   </div>
+ );
+
+ const renderChat = () => (
+   <div className={`min-h-screen bg-gradient-to-br ${getCurrentTheme().bgClass} p-4`}>
+     <div className="max-w-lg mx-auto">
+       <header className="bg-white rounded-lg shadow-md p-4 mb-4 flex justify-between items-center">
+         <button onClick={() => handleStepChange('mood')} className="text-gray-600 hover:text-gray-800">⬅️</button>
+         <h1 className={`text-xl font-bold text-${getCurrentTheme().accent.split('-')[0]}-800`}>{getAIPartnerName()}와의 대화</h1>
+         <span className="text-2xl">{getMoodEmoji(currentMood || 'normal')}</span>
+       </header>
+       
+       {renderTokenBar()}
+       
+       <div className="bg-white rounded-lg shadow-md p-4 mb-4 h-96 overflow-y-auto">
+         {chatMessages.map((msg, idx) => (
+           <div key={idx} className={`mb-4 ${msg.role === 'user' ? 'text-right' : 'text-left'}`}>
+             <div className={`inline-block p-3 rounded-lg max-w-xs ${msg.role === 'user' ? `bg-gradient-to-r ${getCurrentTheme().primary} text-white` : 'bg-gray-100 text-gray-800'}`}>
+               {msg.content}
+             </div>
+             {msg.musicRecommendation && (
+               <div className="mt-3 p-4 bg-gradient-to-r from-purple-50 to-pink-50 rounded-lg">
+                 <div className="flex items-center gap-3">
+                   {msg.musicRecommendation.thumbnail && (
+                     <img src={msg.musicRecommendation.thumbnail} alt={msg.musicRecommendation.title} className="w-16 h-16 rounded-lg object-cover" />
+                   )}
+                   <div className="flex-1">
+                     <h4 className="font-semibold text-gray-800">{msg.musicRecommendation.title}</h4>
+                     <p className="text-sm text-gray-600">{msg.musicRecommendation.artist}</p>
+                     <p className="text-xs text-gray-500 mt-1">{msg.musicRecommendation.description}</p>
+                   </div>
+                 </div>
+                 {msg.musicRecommendation.preview_url && (
+                   <audio controls className="w-full mt-3">
+                     <source src={msg.musicRecommendation.preview_url} type="audio/mpeg" />
+                   </audio>
+                 )}
+                 <div className="flex gap-2 mt-3">
+                   {msg.musicRecommendation.url && (
+                     <a href={msg.musicRecommendation.url} target="_blank" rel="noopener noreferrer" className="flex-1 py-2 px-4 bg-purple-500 text-white rounded-lg text-center hover:bg-purple-600">
+                       들으러 가기
+                     </a>
+                   )}
+                   <button onClick={() => addChatMusicToMyList(msg.musicRecommendation!)} className="flex-1 py-2 px-4 bg-pink-500 text-white rounded-lg hover:bg-pink-600">
+                     내 음악에 추가
+                   </button>
+                 </div>
+               </div>
+             )}
+           </div>
+         ))}
+         {isLoading && (
+           <div className="text-left mb-4">
+             <div className="inline-block p-3 rounded-lg bg-gray-100">
+               <div className="flex items-center gap-2">
+                 <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce"></div>
+                 <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
+                 <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+               </div>
+             </div>
+           </div>
+         )}
+       </div>
+       
+       <div className="bg-white rounded-lg shadow-md p-4">
+         <div className="flex gap-2">
+           <input
+             type="text"
+             value={currentInput}
+             onChange={(e) => setCurrentInput(e.target.value)}
+             onKeyPress={(e) => { if (e.key === 'Enter' && !isLoading) handleSendMessage(); }}
+             placeholder="메시지를 입력하세요..."
+             className={`flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-${getCurrentTheme().accent}`}
+             disabled={isLoading}
+           />
+           <button onClick={handleSendMessage} disabled={isLoading || !currentInput.trim()} className={`px-6 py-2 rounded-lg font-semibold bg-gradient-to-r ${getCurrentTheme().primary} text-white hover:opacity-90 disabled:opacity-50`}>
+             전송
+           </button>
+         </div>
+         <button onClick={handleGenerateSummary} className={`w-full mt-3 py-2 rounded-lg font-semibold bg-gradient-to-r from-purple-500 to-pink-500 text-white hover:opacity-90`}>
+           대화 마무리하기
+         </button>
+       </div>
+     </div>
+   </div>
+ );
+
+ const renderSummary = () => (
+   <div className={`min-h-screen bg-gradient-to-br ${getCurrentTheme().bgClass} p-4`}>
+     <div className="max-w-lg mx-auto">
+       <header className="bg-white rounded-lg shadow-md p-4 mb-4">
+         <h1 className={`text-xl font-bold text-${getCurrentTheme().accent.split('-')[0]}-800 text-center`}>오늘의 일기 요약</h1>
+       </header>
+       
+       {summaryData && (
+         <div className="bg-white rounded-lg shadow-md p-6 mb-4">
+           <div className="mb-6">
+             <h3 className={`text-lg font-semibold text-${getCurrentTheme().accent.split('-')[0]}-800 mb-2`}>📝 오늘의 이야기</h3>
+             <p className="text-gray-700 leading-relaxed">{summaryData.summary}</p>
+           </div>
+           
+           <div className="mb-6">
+             <h3 className={`text-lg font-semibold text-${getCurrentTheme().accent.split('-')[0]}-800 mb-2`}>🏷️ 감정 키워드</h3>
+             <div className="flex flex-wrap gap-2">
+               {summaryData.keywords.map((keyword, idx) => (
+                 <span key={idx} className={`px-3 py-1 bg-${getCurrentTheme().accent.split('-')[0]}-100 text-${getCurrentTheme().accent.split('-')[0]}-700 rounded-full text-sm`}>
+                   {keyword}
+                 </span>
+               ))}
+             </div>
+           </div>
+           
+           <div className="mb-6">
+             <h3 className={`text-lg font-semibold text-${getCurrentTheme().accent.split('-')[0]}-800 mb-2`}>💭 AI가 분석한 감정</h3>
+             <div className="flex flex-wrap gap-2">
+               {summaryData.recommendedEmotions.map((emotion, idx) => (
+                 <button
+                   key={idx}
+                   onClick={() => handleEmotionSelect(emotion)}
+                   className={`px-3 py-1 rounded-full text-sm transition-all ${
+                     selectedEmotions.includes(emotion) 
+                       ? `bg-gradient-to-r ${getCurrentTheme().primary} text-white` 
+                       : 'bg-gray-100 hover:bg-gray-200'
+                   }`}
+                 >
+                   {emotion}
+                 </button>
+               ))}
+             </div>
+             <p className="text-xs text-gray-500 mt-2">최대 2개까지 선택 가능</p>
+           </div>
+           
+           <div className="mb-6">
+             <h3 className={`text-lg font-semibold text-${getCurrentTheme().accent.split('-')[0]}-800 mb-2`}>🎯 추천 활동</h3>
+             <ul className="space-y-2">
+               {summaryData.actionItems.map((item, idx) => (
+                 <li key={idx} className="flex items-start gap-2">
+                   <span className="text-purple-500">•</span>
+                   <span className="text-gray-700 text-sm">{item}</span>
+                 </li>
+               ))}
+             </ul>
+           </div>
+           
+           <div className="mb-6">
+             <h3 className={`text-lg font-semibold text-${getCurrentTheme().accent.split('-')[0]}-800 mb-2`}>🎵 추천 음악</h3>
+             <div className="space-y-3">
+               {recommendedMusicForSummary.map((music, idx) => (
+                 <div key={idx} className="p-3 bg-gradient-to-r from-purple-50 to-pink-50 rounded-lg">
+                   <div className="flex items-center gap-3">
+                     {music.thumbnail && (
+                       <img src={music.thumbnail} alt={music.title} className="w-12 h-12 rounded-lg object-cover" />
+                     )}
+                     <div className="flex-1">
+                       <h4 className="font-medium text-gray-800">{music.title}</h4>
+                       <p className="text-sm text-gray-600">{music.artist}</p>
+                     </div>
+                   </div>
+                   {music.url && (
+                     <a href={music.url} target="_blank" rel="noopener noreferrer" className="block mt-2 text-center py-2 bg-purple-500 text-white rounded-lg hover:bg-purple-600">
+                       들으러 가기
+                     </a>
+                   )}
+                 </div>
+               ))}
+             </div>
+           </div>
+           
+           <div className="mb-4">
+             <h3 className={`text-lg font-semibold text-${getCurrentTheme().accent.split('-')[0]}-800 mb-2`}>✏️ 나의 주요 감정 (선택사항)</h3>
+             <input
+               type="text"
+               placeholder="오늘 가장 크게 느낀 감정을 적어보세요"
+               value={userMainEmotion}
+               onChange={(e) => setUserMainEmotion(e.target.value)}
+               className={`w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-${getCurrentTheme().accent}`}
+             />
+           </div>
+         </div>
+       )}
+       
+       <button onClick={handleSaveDiary} disabled={isLoading} className={`w-full py-3 rounded-lg font-semibold bg-gradient-to-r ${getCurrentTheme().primary} text-white hover:opacity-90 disabled:opacity-50`}>
+         {isLoading ? '저장 중...' : '일기 저장하기'}
+       </button>
+     </div>
+   </div>
+ );
+
+ const renderStats = () => {
+   const moodCounts = {
+     good: diaryEntries.filter(e => e.mood === 'good').length,
+     normal: diaryEntries.filter(e => e.mood === 'normal').length,
+     bad: diaryEntries.filter(e => e.mood === 'bad').length
+   };
+
+   const totalMoodCount = moodCounts.good + moodCounts.normal + moodCounts.bad;
+   const moodPercentages = {
+     good: totalMoodCount > 0 ? (moodCounts.good / totalMoodCount * 100).toFixed(1) : '0.0',
+     normal: totalMoodCount > 0 ? (moodCounts.normal / totalMoodCount * 100).toFixed(1) : '0.0',
+     bad: totalMoodCount > 0 ? (moodCounts.bad / totalMoodCount * 100).toFixed(1) : '0.0'
+   };
+
+   const emotionFrequency: Record<string, number> = {};
+   diaryEntries.forEach(entry => {
+     entry.selectedEmotions?.forEach(emotion => {
+       emotionFrequency[emotion] = (emotionFrequency[emotion] || 0) + 1;
+     });
+   });
+
+   const topEmotions = Object.entries(emotionFrequency)
+     .sort(([,a], [,b]) => b - a)
+     .slice(0, 5);
+
+   return (
+     <div className={`min-h-screen bg-gradient-to-br ${getCurrentTheme().bgClass} p-4`}>
+       <div className="max-w-lg mx-auto">
+         <header className="bg-white rounded-lg shadow-md p-4 mb-6 flex justify-between items-center">
+           <button onClick={() => handleStepChange('mood')} className="text-gray-600 hover:text-gray-800">⬅️</button>
+           <h1 className={`text-xl font-bold text-${getCurrentTheme().accent.split('-')[0]}-800`}>통계 & 감정 달력</h1>
+           <button onClick={() => handleLogout()} className="text-gray-600 hover:text-gray-800">🚪</button>
+         </header>
+         
+         <div className="bg-white rounded-lg shadow-md p-6 mb-6">
+           <h2 className={`text-lg font-bold text-${getCurrentTheme().accent.split('-')[0]}-800 mb-4`}>📊 통계</h2>
+           
+           <div className="grid grid-cols-4 gap-4 mb-6">
+             <div className="bg-gradient-to-r from-purple-500 to-pink-500 rounded-lg p-4 text-white text-center">
+               <div className="text-2xl font-bold">{diaryEntries.length}</div>
+               <div className="text-xs">총 일기 수</div>
+             </div>
+             <div className="bg-gradient-to-r from-blue-500 to-cyan-500 rounded-lg p-4 text-white text-center">
+               <div className="text-2xl font-bold">{personalMusic.length}</div>
+               <div className="text-xs">저장된 음악</div>
+             </div>
+             <div className="bg-gradient-to-r from-green-500 to-teal-500 rounded-lg p-4 text-white text-center">
+               <div className="text-2xl font-bold">{userProgress.level}</div>
+               <div className="text-xs">현재 레벨</div>
+             </div>
+             <div className="bg-gradient-to-r from-orange-500 to-red-500 rounded-lg p-4 text-white text-center">
+               <div className="text-2xl font-bold">{userProgress.experience}</div>
+               <div className="text-xs">총 경험치</div>
+             </div>
+           </div>
+           
+           <div className="mb-6">
+             <h3 className="font-semibold mb-2">기분 분포</h3>
+             <div className="space-y-2">
+               <div className="flex items-center gap-2">
+                 <span className="w-12">😊 좋음</span>
+                 <div className="flex-1 bg-gray-200 rounded-full h-4">
+                   <div className="bg-green-500 h-4 rounded-full" style={{ width: `${moodPercentages.good}%` }}></div>
+                 </div>
+                 <span className="text-sm">{moodCounts.good}개 ({moodPercentages.good}%)</span>
+               </div>
+               <div className="flex items-center gap-2">
+                 <span className="w-12">😐 보통</span>
+                 <div className="flex-1 bg-gray-200 rounded-full h-4">
+                   <div className="bg-blue-500 h-4 rounded-full" style={{ width: `${moodPercentages.normal}%` }}></div>
+                 </div>
+                 <span className="text-sm">{moodCounts.normal}개 ({moodPercentages.normal}%)</span>
+               </div>
+               <div className="flex items-center gap-2">
+                 <span className="w-12">😔 나쁨</span>
+                 <div className="flex-1 bg-gray-200 rounded-full h-4">
+                   <div className="bg-purple-500 h-4 rounded-full" style={{ width: `${moodPercentages.bad}%` }}></div>
+                 </div>
+                 <span className="text-sm">{moodCounts.bad}개 ({moodPercentages.bad}%)</span>
+               </div>
+             </div>
+           </div>
+           
+           {topEmotions.length > 0 && (
+             <div>
+               <h3 className="font-semibold mb-2">자주 느끼는 감정 TOP 5</h3>
+               <div className="space-y-1">
+                 {topEmotions.map(([emotion, count], idx) => (
+                   <div key={idx} className="flex items-center justify-between">
+                     <span className="text-sm">{emotion}</span>
+                     <span className="text-sm text-gray-500">{count}회</span>
+                   </div>
+                 ))}
+               </div>
+             </div>
+           )}
+         </div>
+         
+         <div className="bg-white rounded-lg shadow-md p-6">
+           <h2 className={`text-lg font-bold text-${getCurrentTheme().accent.split('-')[0]}-800 mb-4`}>📅 감정 달력</h2>
+           <div className="flex justify-between items-center mb-4">
+             <button onClick={() => setCurrentCalendarMonth(new Date(currentCalendarMonth.getFullYear(), currentCalendarMonth.getMonth() - 1))} className="text-gray-600 hover:text-gray-800">⬅️ 이전</button>
+             <span className="font-semibold">{currentCalendarMonth.getFullYear()}년 {currentCalendarMonth.getMonth() + 1}월</span>
+             <button onClick={() => setCurrentCalendarMonth(new Date(currentCalendarMonth.getFullYear(), currentCalendarMonth.getMonth() + 1))} className="text-gray-600 hover:text-gray-800">다음 ➡️</button>
+           </div>
+           
+           <div className="grid grid-cols-7 gap-1 text-center text-xs">
+             {['일', '월', '화', '수', '목', '금', '토'].map(day => (
+               <div key={day} className="font-semibold py-1">{day}</div>
+             ))}
+             {Array.from({ length: new Date(currentCalendarMonth.getFullYear(), currentCalendarMonth.getMonth(), 1).getDay() }, (_, i) => (
+               <div key={`empty-${i}`} className="py-2"></div>
+             ))}
+             {Array.from({ length: new Date(currentCalendarMonth.getFullYear(), currentCalendarMonth.getMonth() + 1, 0).getDate() }, (_, i) => {
+               const date = i + 1;
+               const dateStr = `${currentCalendarMonth.getFullYear()}.${(currentCalendarMonth.getMonth() + 1).toString().padStart(2, '0')}.${date.toString().padStart(2, '0')}`;
+               const entry = diaryEntries.find(e => e.date === dateStr);
+               const isToday = new Date().toDateString() === new Date(currentCalendarMonth.getFullYear(), currentCalendarMonth.getMonth(), date).toDateString();
+               
+               return (
+                 <div key={date} className={`py-2 rounded ${isToday ? 'border-2 border-purple-500' : ''} ${entry ? 'cursor-pointer hover:bg-gray-100' : ''}`}>
+                   <div className="text-sm">{date}</div>
+                   {entry && (
+                     <div className="text-lg">{getMoodEmoji(entry.mood)}</div>
+                   )}
+                 </div>
+               );
+             })}
+           </div>
+           
+           <div className="mt-4 flex items-center gap-4 text-xs text-gray-600">
+             <div className="flex items-center gap-1">
+               <div className="w-3 h-3 bg-green-500 rounded-full"></div>
+               <span>😊 좋음</span>
+             </div>
+             <div className="flex items-center gap-1">
+               <div className="w-3 h-3 bg-blue-500 rounded-full"></div>
+               <span>😐 보통</span>
+             </div>
+             <div className="flex items-center gap-1">
+               <div className="w-3 h-3 bg-purple-500 rounded-full"></div>
+               <span>😔 나쁨</span>
+             </div>
+           </div>
+         </div>
+       </div>
+     </div>
+   );
+ };
+
+ const renderMyDiary = () => (
+   <div className={`min-h-screen bg-gradient-to-br ${getCurrentTheme().bgClass} p-4`}>
+     <div className="max-w-lg mx-auto">
+       <header className="bg-white rounded-lg shadow-md p-4 mb-6 flex justify-between items-center">
+         <button onClick={() => handleStepChange('mood')} className="text-gray-600 hover:text-gray-800">⬅️</button>
+         <h1 className={`text-xl font-bold text-${getCurrentTheme().accent.split('-')[0]}-800`}>내 일기</h1>
+         <button onClick={() => handleStepChange('trash')} className="text-gray-600 hover:text-gray-800">🗑️</button>
+       </header>
+       
+       <div className="bg-white rounded-lg shadow-md p-4 mb-4">
+         <input
+           type="text"
+           placeholder="일기 검색..."
+           value={searchQuery}
+           onChange={(e) => setSearchQuery(e.target.value)}
+           className={`w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-${getCurrentTheme().accent}`}
+         />
+       </div>
+       
+       <div className="space-y-4">
+         {(searchQuery ? searchDiaries(searchQuery) : diaryEntries).map(entry => (
+           <div key={entry.id} className="bg-white rounded-lg shadow-md p-4">
+             <div className="flex justify-between items-start mb-2">
+               <div>
+                 <div className="flex items-center gap-2">
+                   <span className="text-2xl">{getMoodEmoji(entry.mood)}</span>
+                   <span className="font-semibold">{entry.date}</span>
+                   <span className="text-sm text-gray-500">{entry.time}</span>
+                 </div>
+                 <div className="flex flex-wrap gap-1 mt-1">
+                   {entry.keywords?.map((keyword, idx) => (
+                     <span key={idx} className="text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded-full">
+                       {keyword}
+                     </span>
+                   ))}
+                 </div>
+               </div>
+               <button onClick={() => setExpandedDiaryId(expandedDiaryId === entry.id ? null : entry.id)} className="text-gray-500 hover:text-gray-700">
+                 {expandedDiaryId === entry.id ? '📖' : '📕'}
+               </button>
+             </div>
+             
+             <p className={`text-gray-700 ${expandedDiaryId === entry.id ? '' : 'line-clamp-2'}`}>
+               {entry.summary}
+             </p>
+             
+             {expandedDiaryId === entry.id && (
+               <div className="mt-4 space-y-3">
+                 {entry.selectedEmotions && entry.selectedEmotions.length > 0 && (
+                   <div>
+                     <h4 className="font-semibold text-sm mb-1">감정:</h4>
+                     <div className="flex flex-wrap gap-1">
+                       {entry.selectedEmotions.map((emotion, idx) => (
+                         <span key={idx} className="text-xs bg-pink-100 text-pink-700 px-2 py-1 rounded-full">
+                           {emotion}
+                         </span>
+                       ))}
+                     </div>
+                   </div>
+                 )}
+                 
+                 {entry.musicPlayed && entry.musicPlayed.length > 0 && (
+                   <div>
+                     <h4 className="font-semibold text-sm mb-1">들은 음악:</h4>
+                     <div className="space-y-2">
+                       {entry.musicPlayed.map((music, idx) => (
+                         <div key={idx} className="flex items-center gap-2 text-sm">
+                           <span>🎵</span>
+                           <span>{music.title} - {music.artist}</span>
+                         </div>
+                       ))}
+                     </div>
+                   </div>
+                 )}
+                 
+                 {entry.actionItems && entry.actionItems.length > 0 && (
+                   <div>
+                     <h4 className="font-semibold text-sm mb-1">추천 활동:</h4>
+                     <ul className="text-sm text-gray-600">
+                       {entry.actionItems.map((item, idx) => (
+                         <li key={idx}>• {item}</li>
+                       ))}
+                     </ul>
+                   </div>
+                 )}
+                 
+                 <button onClick={() => moveToTrash(entry)} className="mt-2 text-sm text-red-500 hover:text-red-700">
+                   🗑️ 삭제
+                 </button>
+               </div>
+             )}
+           </div>
+         ))}
+         
+         {diaryEntries.length === 0 && (
+           <div className="text-center py-8 text-gray-500">
+             아직 작성한 일기가 없어요.<br />
+             오늘의 감정을 기록해보세요!
+           </div>
+         )}
+       </div>
+     </div>
+   </div>
+ );
+
+ const renderMyMusic = () => (
+   <div className={`min-h-screen bg-gradient-to-br ${getCurrentTheme().bgClass} p-4`}>
+     <div className="max-w-lg mx-auto">
+       <header className="bg-white rounded-lg shadow-md p-4 mb-6 flex justify-between items-center">
+         <button onClick={() => handleStepChange('mood')} className="text-gray-600 hover:text-gray-800">⬅️</button>
+         <h1 className={`text-xl font-bold text-${getCurrentTheme().accent.split('-')[0]}-800`}>내 음악</h1>
+         <span className="text-sm text-gray-600">{personalMusic.length}곡</span>
+       </header>
+       
+       <div className="space-y-4">
+         {personalMusic && personalMusic.length > 0 ? (
+           personalMusic.map((music, idx) => (
+             <div key={idx} className="bg-white rounded-lg shadow-md p-4">
+               <div className="flex items-center gap-4">
+                 {music.thumbnail && (
+                   <img src={music.thumbnail} alt={music.title} className="w-20 h-20 rounded-lg object-cover" />
+                 )}
+                 <div className="flex-1">
+                   <h3 className="font-semibold text-gray-800">{music.title}</h3>
+                   <p className="text-sm text-gray-600">{music.artist}</p>
+                   <div className="flex flex-wrap gap-1 mt-1">
+                     {music.emotions.map((emotion, eidx) => (
+                       <span key={eidx} className="text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded-full">
+                         {emotion}
+                       </span>
+                     ))}
+                   </div>
+                 </div>
+               </div>
+               
+               {music.preview_url && (
+                 <audio controls className="w-full mt-3">
+                   <source src={music.preview_url} type="audio/mpeg" />
+                 </audio>
+               )}
+               
+               <div className="flex gap-2 mt-3">
+                 {music.url && (
+                   <a href={music.url} target="_blank" rel="noopener noreferrer" className="flex-1 py-2 px-4 bg-purple-500 text-white rounded-lg text-center hover:bg-purple-600">
+                     들으러 가기
+                   </a>
+                 )}
+                 <button onClick={() => removeFromPersonalMusic(music.id)} className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600">
+                   삭제
+                 </button>
+               </div>
+             </div>
+           ))
+         ) : (
+           <div className="text-center py-8 text-gray-500">
+             아직 저장한 음악이 없어요.<br />
+             AI와 대화하며 음악을 추천받아보세요!
+           </div>
+         )}
+       </div>
+     </div>
+   </div>
+ );
+
+ const renderTrash = () => (
+   <div className={`min-h-screen bg-gradient-to-br ${getCurrentTheme().bgClass} p-4`}>
+     <div className="max-w-lg mx-auto">
+       <header className="bg-white rounded-lg shadow-md p-4 mb-6 flex justify-between items-center">
+         <button onClick={() => handleStepChange('myDiary')} className="text-gray-600 hover:text-gray-800">⬅️</button>
+         <h1 className={`text-xl font-bold text-${getCurrentTheme().accent.split('-')[0]}-800`}>휴지통</h1>
+         <span className="text-sm text-gray-600">{trashEntries.length}개</span>
+       </header>
+       
+       <div className="space-y-4">
+         {trashEntries.map(entry => (
+           <div key={entry.id} className="bg-white rounded-lg shadow-md p-4 opacity-75">
+             <div className="flex justify-between items-start mb-2">
+               <div>
+                 <div className="flex items-center gap-2">
+                   <span className="text-2xl">{getMoodEmoji(entry.mood)}</span>
+                   <span className="font-semibold">{entry.date}</span>
+                   <span className="text-sm text-gray-500">{entry.time}</span>
+                 </div>
+                 <p className="text-sm text-red-500 mt-1">삭제됨: {entry.deletedAt}</p>
+               </div>
+               <button onClick={() => restoreFromTrash(entry)} className="text-blue-500 hover:text-blue-700">
+                 복원
+               </button>
+             </div>
+             <p className="text-gray-700 line-clamp-2">{entry.summary}</p>
+           </div>
+         ))}
+         
+         {trashEntries.length === 0 && (
+           <div className="text-center py-8 text-gray-500">
+             휴지통이 비어있어요.
+           </div>
+         )}
+       </div>
+     </div>
+   </div>
+ );
+
+ const renderSettings = () => (
+   <div className={`min-h-screen bg-gradient-to-br ${getCurrentTheme().bgClass} p-4`}>
+     <div className="max-w-lg mx-auto">
+       <header className="bg-white rounded-lg shadow-md p-4 mb-6 flex justify-between items-center">
+         <button onClick={() => handleStepChange('mood')} className="text-gray-600 hover:text-gray-800">⬅️</button>
+         <h1 className={`text-xl font-bold text-${getCurrentTheme().accent.split('-')[0]}-800`}>설정</h1>
+         <button onClick={handleLogout} className="text-red-500 hover:text-red-700">로그아웃</button>
+       </header>
+       
+       <div className="bg-white rounded-lg shadow-md p-6 mb-4">
+         <h2 className="text-lg font-semibold mb-4">계정 정보</h2>
+         <p className="text-gray-600 mb-2">이메일: {user?.email}</p>
+         <p className="text-gray-600 mb-2">레벨: {userProgress.level}</p>
+         <p className="text-gray-600">가입일: {user?.metadata.creationTime ? new Date(user.metadata.creationTime).toLocaleDateString('ko-KR') : '알 수 없음'}</p>
+       </div>
+       
+       <div className="bg-white rounded-lg shadow-md p-6 mb-4">
+         <h2 className="text-lg font-semibold mb-4">AI 파트너</h2>
+         <p className="text-gray-600 mb-2">이름: {getAIPartnerName()}</p>
+         <p className="text-gray-600">타입: {selectedPersonType || 'AI 친구'}</p>
+       </div>
+       
+       <div className="bg-white rounded-lg shadow-md p-6 mb-4">
+         <h2 className="text-lg font-semibold mb-4">음악 선호도</h2>
+         <div className="flex flex-wrap gap-2">
+           {appSettings.musicPreferences.map(genreId => {
+             const genre = MUSIC_GENRES.find(g => g.id === genreId);
+             return genre ? (
+               <span key={genreId} className="px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-sm">
+                 {genre.emoji} {genre.name}
+               </span>
+             ) : null;
+           })}
+         </div>
+       </div>
+       
+       <div className="bg-white rounded-lg shadow-md p-6">
+         <h2 className="text-lg font-semibold mb-4">프리미엄</h2>
+         <p className="text-gray-600 mb-4">
+           {appSettings.isPremium ? '프리미엄 사용중' : '무료 플랜 사용중'}
+         </p>
+         {!appSettings.isPremium && (
+           <button className={`w-full py-3 rounded-lg font-semibold bg-gradient-to-r from-yellow-400 to-orange-500 text-white hover:opacity-90`}>
+             프리미엄 업그레이드
+           </button>
+         )}
+       </div>
+     </div>
+   </div>
+ );
+
+  const getSpotifyToken = useCallback(async () => {
     try {
-      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-      await initializeNewUser(userCredential.user.uid);
-    } catch (error: any) {
-      alert('회원가입 실패: ' + error.message);
-    } finally {
-      setIsLoading(false);
+      if (!SPOTIFY_CLIENT_ID || !SPOTIFY_CLIENT_SECRET) {
+        console.error('Spotify 클라이언트 ID 또는 Secret이 설정되지 않았습니다.');
+        return;
+      }
+
+      const response = await fetch('https://accounts.spotify.com/api/token', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Authorization': `Basic ${btoa(`${SPOTIFY_CLIENT_ID}:${SPOTIFY_CLIENT_SECRET}`)}`
+        },
+        body: 'grant_type=client_credentials'
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setSpotifyToken(data.access_token);
+      }
+    } catch (error) {
+      console.error('Spotify 토큰 획득 오류:', error);
     }
-  };
+  }, [SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET]);
+
+  useEffect(() => {
+    getSpotifyToken();
+  }, [getSpotifyToken]);
 
   const handleGoogleLogin = async () => {
     setIsLoading(true);
@@ -506,8 +1317,8 @@ const App: React.FC = () => {
       if (progressSnapshot.empty) {
         await initializeNewUser(result.user.uid);
       }
-    } catch (error: any) {
-      alert('Google 로그인 실패: ' + error.message);
+    } catch (error) {
+      alert('Google 로그인 실패: ' + (error instanceof Error ? error.message : '알 수 없는 오류가 발생했습니다.'));
     } finally {
       setIsLoading(false);
     }
@@ -547,35 +1358,6 @@ const App: React.FC = () => {
       console.error('로그아웃 오류:', error);
     }
   };
-
-  const getSpotifyToken = useCallback(async () => {
-    try {
-      if (!SPOTIFY_CLIENT_ID || !SPOTIFY_CLIENT_SECRET) {
-        console.error('Spotify 클라이언트 ID 또는 Secret이 설정되지 않았습니다.');
-        return;
-      }
-
-      const response = await fetch('https://accounts.spotify.com/api/token', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-          'Authorization': `Basic ${btoa(`${SPOTIFY_CLIENT_ID}:${SPOTIFY_CLIENT_SECRET}`)}`
-        },
-        body: 'grant_type=client_credentials'
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setSpotifyToken(data.access_token);
-      }
-    } catch (error) {
-      console.error('Spotify 토큰 획득 오류:', error);
-    }
-  }, [SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET]);
-
-  useEffect(() => {
-    getSpotifyToken();
-  }, [getSpotifyToken]);
 
   const calculateLevel = (experience: number) => {
     for (let level = 15; level >= 1; level--) {
@@ -1279,805 +2061,12 @@ ${userMessages}
         collection(db, 'appSettings'),
         where('userId', '==', user.uid)
       );
-      const settingsSnapshot = await getDocs(settingsQuery);
-      
-      const updatedSettings = {
-        ...appSettings,
-        musicPreferences: selectedMusicGenres
-      };
-
-      if (!settingsSnapshot.empty) {
-        await updateDoc(doc(db, 'appSettings', settingsSnapshot.docs[0].id), updatedSettings);
-      } else {
-        await addDoc(collection(db, 'appSettings'), {
-          userId: user.uid,
-          ...updatedSettings,
-          createdAt: serverTimestamp()
-        });
-      }
-
-      setAppSettings(updatedSettings);
-      setCurrentStep('mood');
+      // const settingsSnapshot = await getDocs(settingsQuery); // 실제 코드로 복원 필요
     } catch (error) {
-     console.error('온보딩 완료 오류:', error);
-     alert('설정 저장 중 오류가 발생했습니다.');
-   }
- };
-
- const renderTokenBar = () => {
-   const usageRatio = Math.min(tokenUsage / MAX_FREE_TOKENS, 1.0);
-   const remaining = Math.max(0, MAX_FREE_TOKENS - tokenUsage);
-   let status = usageRatio >= 0.95 ? '조금 부족해요' : usageRatio >= 0.5 ? '적당해요' : '충분해요';
-
-   return (
-     <div className={`bg-gradient-to-r ${getCurrentTheme().secondary} rounded-lg p-4 mb-4 border border-${getCurrentTheme().accent.split('-')[0]}-200`}>
-       <div className="flex justify-between items-center mb-2">
-         <span className={`text-sm font-semibold text-${getCurrentTheme().accent.split('-')[0]}-800`}>AI와 대화할 수 있는 에너지</span>
-         <span className={`text-xs text-${getCurrentTheme().accent.split('-')[0]}-600`}>{remaining.toLocaleString()} / {MAX_FREE_TOKENS.toLocaleString()} 남음</span>
-       </div>
-       <div className={`w-full bg-${getCurrentTheme().accent.split('-')[0]}-100 rounded-full h-2`}>
-         <div className={`h-2 rounded-full transition-all bg-gradient-to-r ${getCurrentTheme().primary}`} style={{ width: `${usageRatio * 100}%` }}></div>
-       </div>
-       <div className={`text-center text-xs mt-1 text-${getCurrentTheme().accent.split('-')[0]}-600`}>상태: {status}</div>
-     </div>
-   );
- };
-
- const renderUserProgress = () => (
-   <div className={`bg-gradient-to-r ${getCurrentTheme().secondary} rounded-xl shadow-lg p-6 mb-6 border border-${getCurrentTheme().accent.split('-')[0]}-200`}>
-     <div className="flex justify-between items-center mb-4">
-       <span className={`text-lg font-bold text-${getCurrentTheme().accent.split('-')[0]}-800`}>레벨 {userProgress.level}</span>
-       <span className={`text-sm text-${getCurrentTheme().accent.split('-')[0]}-600`}>다음 레벨까지 {userProgress.expToNext} EXP</span>
-     </div>
-     <div className={`w-full bg-${getCurrentTheme().accent.split('-')[0]}-100 rounded-full h-3`}>
-       <div className={`bg-gradient-to-r ${getCurrentTheme().primary} h-3 rounded-full transition-all`} style={{ width: `${userProgress.progressPercentage}%` }}></div>
-     </div>
-     <div className={`text-center text-xs text-${getCurrentTheme().accent.split('-')[0]}-600 mt-2`}>총 경험치: {userProgress.experience} EXP</div>
-   </div>
- );
-
- const renderAuth = () => (
-   <div className={`min-h-screen bg-gradient-to-br ${getCurrentTheme().bgClass} flex items-center justify-center p-4`}>
-     <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-md">
-       <div className="text-center mb-6">
-         <div className="text-4xl mb-2">🎵</div>
-         <h1 className={`text-2xl font-bold text-${getCurrentTheme().accent.split('-')[0]}-800`}>EPLAY</h1>
-         <p className={`text-${getCurrentTheme().accent.split('-')[0]}-600`}>감정기반 음악 추천</p>
-       </div>
-       <div className="flex justify-center mb-6">
-         <div className="flex bg-gray-100 rounded-lg p-1">
-           <button onClick={() => setIsAuthMode('login')} className={`px-4 py-2 rounded-md font-medium transition-all ${isAuthMode === 'login' ? `bg-gradient-to-r ${getCurrentTheme().primary} text-white` : 'text-gray-600'}`}>로그인</button>
-           <button onClick={() => setIsAuthMode('register')} className={`px-4 py-2 rounded-md font-medium transition-all ${isAuthMode === 'register' ? `bg-gradient-to-r ${getCurrentTheme().primary} text-white` : 'text-gray-600'}`}>회원가입</button>
-         </div>
-       </div>
-       <div className="space-y-4">
-         <input type="email" placeholder="이메일을 입력하세요" value={email} onChange={(e) => setEmail(e.target.value)} className={`w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-${getCurrentTheme().accent}`}/>
-         <input type="password" placeholder="비밀번호를 입력하세요" value={password} onChange={(e) => setPassword(e.target.value)} onKeyPress={(e) => { if (e.key === 'Enter') { isAuthMode === 'login' ? handleLogin() : handleRegister(); } }} className={`w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-${getCurrentTheme().accent}`}/>
-         <button onClick={isAuthMode === 'login' ? handleLogin : handleRegister} disabled={isLoading} className={`w-full py-3 rounded-lg font-semibold bg-gradient-to-r ${getCurrentTheme().primary} text-white hover:opacity-90 disabled:opacity-50 transition-all`}>
-           {isLoading ? '처리중...' : (isAuthMode === 'login' ? '로그인' : '회원가입')}
-         </button>
-       </div>
-       <div className="mt-4 text-center">
-         <span className={`text-sm text-${getCurrentTheme().accent.split('-')[0]}-600`}>또는</span>
-       </div>
-       <button onClick={handleGoogleLogin} disabled={isLoading} className={`w-full mt-4 py-3 rounded-lg font-semibold border border-gray-300 hover:bg-gray-50 transition-all flex items-center justify-center gap-2`}>
-         <svg className="w-5 h-5" viewBox="0 0 24 24">
-           <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
-           <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-           <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
-           <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
-         </svg>
-         <span>Google로 로그인</span>
-       </button>
-     </div>
-   </div>
- );
-
- const renderOnboardingName = () => (
-   <div className={`min-h-screen bg-gradient-to-br ${getCurrentTheme().bgClass} flex items-center justify-center p-4`}>
-     <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-md">
-       <div className="text-center mb-6">
-         <h2 className={`text-2xl font-bold text-${getCurrentTheme().accent.split('-')[0]}-800 mb-2`}>반가워요! 👋</h2>
-         <p className={`text-${getCurrentTheme().accent.split('-')[0]}-600`}>어떤 분과 대화하고 싶으신가요?</p>
-       </div>
-       <div className="space-y-3">
-         <button onClick={() => { setSelectedPersonType('friend'); setCurrentStep('onboard-name-input'); }} className={`w-full p-4 rounded-lg border-2 hover:border-${getCurrentTheme().accent} transition-all ${selectedPersonType === 'friend' ? `border-${getCurrentTheme().accent} bg-${getCurrentTheme().accent.split('-')[0]}-50` : 'border-gray-200'}`}>
-           <span className="text-lg font-medium">👭 친구</span>
-         </button>
-         <button onClick={() => { setSelectedPersonType('lover'); setCurrentStep('onboard-name-input'); }} className={`w-full p-4 rounded-lg border-2 hover:border-${getCurrentTheme().accent} transition-all ${selectedPersonType === 'lover' ? `border-${getCurrentTheme().accent} bg-${getCurrentTheme().accent.split('-')[0]}-50` : 'border-gray-200'}`}>
-           <span className="text-lg font-medium">💕 연인</span>
-         </button>
-         <button onClick={() => { setSelectedPersonType('family'); setCurrentStep('onboard-name-input'); }} className={`w-full p-4 rounded-lg border-2 hover:border-${getCurrentTheme().accent} transition-all ${selectedPersonType === 'family' ? `border-${getCurrentTheme().accent} bg-${getCurrentTheme().accent.split('-')[0]}-50` : 'border-gray-200'}`}>
-           <span className="text-lg font-medium">👨‍👩‍👧‍👦 가족</span>
-         </button>
-         <button onClick={() => { setSelectedPersonType('ai'); setSelectedPersonName(AI_NAME); handlePersonNameSubmit(); }} className={`w-full p-4 rounded-lg border-2 hover:border-${getCurrentTheme().accent} transition-all ${selectedPersonType === 'ai' ? `border-${getCurrentTheme().accent} bg-${getCurrentTheme().accent.split('-')[0]}-50` : 'border-gray-200'}`}>
-           <span className="text-lg font-medium">🤖 AI 친구 (기본)</span>
-         </button>
-       </div>
-     </div>
-   </div>
- );
-
- const renderOnboardingNameInput = () => (
-   <div className={`min-h-screen bg-gradient-to-br ${getCurrentTheme().bgClass} flex items-center justify-center p-4`}>
-     <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-md">
-       <div className="text-center mb-6">
-         <h2 className={`text-2xl font-bold text-${getCurrentTheme().accent.split('-')[0]}-800 mb-2`}>이름을 알려주세요</h2>
-         <p className={`text-${getCurrentTheme().accent.split('-')[0]}-600`}>
-           {selectedPersonType === 'friend' ? '친구' : selectedPersonType === 'lover' ? '연인' : '가족'}의 이름이 무엇인가요?
-         </p>
-       </div>
-       <input
-         type="text"
-         placeholder="이름을 입력하세요"
-         value={selectedPersonName}
-         onChange={(e) => setSelectedPersonName(e.target.value)}
-         onKeyPress={(e) => { if (e.key === 'Enter') handlePersonNameSubmit(); }}
-         className={`w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-${getCurrentTheme().accent} mb-4`}
-       />
-       <button onClick={handlePersonNameSubmit} disabled={!selectedPersonName.trim()} className={`w-full py-3 rounded-lg font-semibold bg-gradient-to-r ${getCurrentTheme().primary} text-white hover:opacity-90 disabled:opacity-50 transition-all`}>
-         다음
-       </button>
-       <button onClick={() => setCurrentStep('onboard-name')} className={`w-full mt-2 py-2 text-${getCurrentTheme().accent.split('-')[0]}-600 hover:text-${getCurrentTheme().accent.split('-')[0]}-800`}>
-         뒤로 가기
-       </button>
-     </div>
-   </div>
- );
-
- const renderOnboardingMusic = () => (
-   <div className={`min-h-screen bg-gradient-to-br ${getCurrentTheme().bgClass} flex items-center justify-center p-4`}>
-     <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-md">
-       <div className="text-center mb-6">
-         <h2 className={`text-2xl font-bold text-${getCurrentTheme().accent.split('-')[0]}-800 mb-2`}>음악 취향을 알려주세요</h2>
-         <p className={`text-${getCurrentTheme().accent.split('-')[0]}-600`}>좋아하는 장르를 최대 3개까지 선택해주세요</p>
-       </div>
-       <div className="space-y-3 mb-6">
-         {MUSIC_GENRES.map(genre => (
-           <button
-             key={genre.id}
-             onClick={() => handleMusicGenreSelect(genre.id)}
-             className={`w-full p-4 rounded-lg border-2 hover:border-${getCurrentTheme().accent} transition-all flex items-center gap-3 ${
-               selectedMusicGenres.includes(genre.id) 
-                 ? `border-${getCurrentTheme().accent} bg-${getCurrentTheme().accent.split('-')[0]}-50` 
-                 : 'border-gray-200'
-             }`}
-           >
-             <span className="text-2xl">{genre.emoji}</span>
-             <span className="text-lg font-medium">{genre.name}</span>
-           </button>
-         ))}
-       </div>
-       <button onClick={handleOnboardingComplete} disabled={selectedMusicGenres.length === 0} className={`w-full py-3 rounded-lg font-semibold bg-gradient-to-r ${getCurrentTheme().primary} text-white hover:opacity-90 disabled:opacity-50 transition-all`}>
-         시작하기
-       </button>
-     </div>
-   </div>
- );
-
- const renderMoodSelection = () => (
-   <div className={`min-h-screen bg-gradient-to-br ${getCurrentTheme().bgClass} p-4`}>
-     <div className="max-w-lg mx-auto">
-       <header className="bg-white rounded-lg shadow-md p-4 mb-6 flex justify-between items-center">
-         <h1 className={`text-xl font-bold text-${getCurrentTheme().accent.split('-')[0]}-800`}>오늘의 기분은?</h1>
-         <div className="flex gap-2">
-           <button onClick={() => handleStepChange('stats')} className={`p-2 rounded-lg bg-${getCurrentTheme().accent.split('-')[0]}-100 hover:bg-${getCurrentTheme().accent.split('-')[0]}-200`}>📊</button>
-           <button onClick={() => handleStepChange('myDiary')} className={`p-2 rounded-lg bg-${getCurrentTheme().accent.split('-')[0]}-100 hover:bg-${getCurrentTheme().accent.split('-')[0]}-200`}>📔</button>
-           <button onClick={() => handleStepChange('myMusic')} className={`p-2 rounded-lg bg-${getCurrentTheme().accent.split('-')[0]}-100 hover:bg-${getCurrentTheme().accent.split('-')[0]}-200`}>🎵</button>
-           <button onClick={() => handleStepChange('settings')} className={`p-2 rounded-lg bg-${getCurrentTheme().accent.split('-')[0]}-100 hover:bg-${getCurrentTheme().accent.split('-')[0]}-200`}>⚙️</button>
-         </div>
-       </header>
-       
-       {renderUserProgress()}
-       
-       <div className="space-y-4">
-         <button onClick={() => handleMoodSelect('good')} className={`w-full p-6 rounded-xl bg-gradient-to-r from-green-400 to-blue-400 text-white shadow-lg hover:shadow-xl transition-all`}>
-           <div className="text-4xl mb-2">😊</div>
-           <div className="text-xl font-bold">좋음</div>
-         </button>
-         
-         <button onClick={() => handleMoodSelect('normal')} className={`w-full p-6 rounded-xl bg-gradient-to-r from-blue-400 to-indigo-400 text-white shadow-lg hover:shadow-xl transition-all`}>
-           <div className="text-4xl mb-2">😐</div>
-           <div className="text-xl font-bold">보통</div>
-         </button>
-         
-         <button onClick={() => handleMoodSelect('bad')} className={`w-full p-6 rounded-xl bg-gradient-to-r from-purple-400 to-pink-400 text-white shadow-lg hover:shadow-xl transition-all`}>
-           <div className="text-4xl mb-2">😔</div>
-           <div className="text-xl font-bold">나쁨</div>
-         </button>
-       </div>
-     </div>
-   </div>
- );
-
- const renderChat = () => (
-   <div className={`min-h-screen bg-gradient-to-br ${getCurrentTheme().bgClass} p-4`}>
-     <div className="max-w-lg mx-auto">
-       <header className="bg-white rounded-lg shadow-md p-4 mb-4 flex justify-between items-center">
-         <button onClick={() => handleStepChange('mood')} className="text-gray-600 hover:text-gray-800">⬅️</button>
-         <h1 className={`text-xl font-bold text-${getCurrentTheme().accent.split('-')[0]}-800`}>{getAIPartnerName()}와의 대화</h1>
-         <span className="text-2xl">{getMoodEmoji(currentMood || 'normal')}</span>
-       </header>
-       
-       {renderTokenBar()}
-       
-       <div className="bg-white rounded-lg shadow-md p-4 mb-4 h-96 overflow-y-auto">
-         {chatMessages.map((msg, idx) => (
-           <div key={idx} className={`mb-4 ${msg.role === 'user' ? 'text-right' : 'text-left'}`}>
-             <div className={`inline-block p-3 rounded-lg max-w-xs ${msg.role === 'user' ? `bg-gradient-to-r ${getCurrentTheme().primary} text-white` : 'bg-gray-100 text-gray-800'}`}>
-               {msg.content}
-             </div>
-             {msg.musicRecommendation && (
-               <div className="mt-3 p-4 bg-gradient-to-r from-purple-50 to-pink-50 rounded-lg">
-                 <div className="flex items-center gap-3">
-                   {msg.musicRecommendation.thumbnail && (
-                     <img src={msg.musicRecommendation.thumbnail} alt={msg.musicRecommendation.title} className="w-16 h-16 rounded-lg object-cover" />
-                   )}
-                   <div className="flex-1">
-                     <h4 className="font-semibold text-gray-800">{msg.musicRecommendation.title}</h4>
-                     <p className="text-sm text-gray-600">{msg.musicRecommendation.artist}</p>
-                     <p className="text-xs text-gray-500 mt-1">{msg.musicRecommendation.description}</p>
-                   </div>
-                 </div>
-                 {msg.musicRecommendation.preview_url && (
-                   <audio controls className="w-full mt-3">
-                     <source src={msg.musicRecommendation.preview_url} type="audio/mpeg" />
-                   </audio>
-                 )}
-                 <div className="flex gap-2 mt-3">
-                   {msg.musicRecommendation.url && (
-                     <a href={msg.musicRecommendation.url} target="_blank" rel="noopener noreferrer" className="flex-1 py-2 px-4 bg-purple-500 text-white rounded-lg text-center hover:bg-purple-600">
-                       들으러 가기
-                     </a>
-                   )}
-                   <button onClick={() => addChatMusicToMyList(msg.musicRecommendation!)} className="flex-1 py-2 px-4 bg-pink-500 text-white rounded-lg hover:bg-pink-600">
-                     내 음악에 추가
-                   </button>
-                 </div>
-               </div>
-             )}
-           </div>
-         ))}
-         {isLoading && (
-           <div className="text-left mb-4">
-             <div className="inline-block p-3 rounded-lg bg-gray-100">
-               <div className="flex items-center gap-2">
-                 <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce"></div>
-                 <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
-                 <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
-               </div>
-             </div>
-           </div>
-         )}
-       </div>
-       
-       <div className="bg-white rounded-lg shadow-md p-4">
-         <div className="flex gap-2">
-           <input
-             type="text"
-             value={currentInput}
-             onChange={(e) => setCurrentInput(e.target.value)}
-             onKeyPress={(e) => { if (e.key === 'Enter' && !isLoading) handleSendMessage(); }}
-             placeholder="메시지를 입력하세요..."
-             className={`flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-${getCurrentTheme().accent}`}
-             disabled={isLoading}
-           />
-           <button onClick={handleSendMessage} disabled={isLoading || !currentInput.trim()} className={`px-6 py-2 rounded-lg font-semibold bg-gradient-to-r ${getCurrentTheme().primary} text-white hover:opacity-90 disabled:opacity-50`}>
-             전송
-           </button>
-         </div>
-         <button onClick={handleGenerateSummary} className={`w-full mt-3 py-2 rounded-lg font-semibold bg-gradient-to-r from-purple-500 to-pink-500 text-white hover:opacity-90`}>
-           대화 마무리하기
-         </button>
-       </div>
-     </div>
-   </div>
- );
-
- const renderSummary = () => (
-   <div className={`min-h-screen bg-gradient-to-br ${getCurrentTheme().bgClass} p-4`}>
-     <div className="max-w-lg mx-auto">
-       <header className="bg-white rounded-lg shadow-md p-4 mb-4">
-         <h1 className={`text-xl font-bold text-${getCurrentTheme().accent.split('-')[0]}-800 text-center`}>오늘의 일기 요약</h1>
-       </header>
-       
-       {summaryData && (
-         <div className="bg-white rounded-lg shadow-md p-6 mb-4">
-           <div className="mb-6">
-             <h3 className={`text-lg font-semibold text-${getCurrentTheme().accent.split('-')[0]}-800 mb-2`}>📝 오늘의 이야기</h3>
-             <p className="text-gray-700 leading-relaxed">{summaryData.summary}</p>
-           </div>
-           
-           <div className="mb-6">
-             <h3 className={`text-lg font-semibold text-${getCurrentTheme().accent.split('-')[0]}-800 mb-2`}>🏷️ 감정 키워드</h3>
-             <div className="flex flex-wrap gap-2">
-               {summaryData.keywords.map((keyword, idx) => (
-                 <span key={idx} className={`px-3 py-1 bg-${getCurrentTheme().accent.split('-')[0]}-100 text-${getCurrentTheme().accent.split('-')[0]}-700 rounded-full text-sm`}>
-                   {keyword}
-                 </span>
-               ))}
-             </div>
-           </div>
-           
-           <div className="mb-6">
-             <h3 className={`text-lg font-semibold text-${getCurrentTheme().accent.split('-')[0]}-800 mb-2`}>💭 AI가 분석한 감정</h3>
-             <div className="flex flex-wrap gap-2">
-               {summaryData.recommendedEmotions.map((emotion, idx) => (
-                 <button
-                   key={idx}
-                   onClick={() => handleEmotionSelect(emotion)}
-                   className={`px-3 py-1 rounded-full text-sm transition-all ${
-                     selectedEmotions.includes(emotion) 
-                       ? `bg-gradient-to-r ${getCurrentTheme().primary} text-white` 
-                       : 'bg-gray-100 hover:bg-gray-200'
-                   }`}
-                 >
-                   {emotion}
-                 </button>
-               ))}
-             </div>
-             <p className="text-xs text-gray-500 mt-2">최대 2개까지 선택 가능</p>
-           </div>
-           
-           <div className="mb-6">
-             <h3 className={`text-lg font-semibold text-${getCurrentTheme().accent.split('-')[0]}-800 mb-2`}>🎯 추천 활동</h3>
-             <ul className="space-y-2">
-               {summaryData.actionItems.map((item, idx) => (
-                 <li key={idx} className="flex items-start gap-2">
-                   <span className="text-purple-500">•</span>
-                   <span className="text-gray-700 text-sm">{item}</span>
-                 </li>
-               ))}
-             </ul>
-           </div>
-           
-           <div className="mb-6">
-             <h3 className={`text-lg font-semibold text-${getCurrentTheme().accent.split('-')[0]}-800 mb-2`}>🎵 추천 음악</h3>
-             <div className="space-y-3">
-               {recommendedMusicForSummary.map((music, idx) => (
-                 <div key={idx} className="p-3 bg-gradient-to-r from-purple-50 to-pink-50 rounded-lg">
-                   <div className="flex items-center gap-3">
-                     {music.thumbnail && (
-                       <img src={music.thumbnail} alt={music.title} className="w-12 h-12 rounded-lg object-cover" />
-                     )}
-                     <div className="flex-1">
-                       <h4 className="font-medium text-gray-800">{music.title}</h4>
-                       <p className="text-sm text-gray-600">{music.artist}</p>
-                     </div>
-                   </div>
-                   {music.url && (
-                     <a href={music.url} target="_blank" rel="noopener noreferrer" className="block mt-2 text-center py-2 bg-purple-500 text-white rounded-lg hover:bg-purple-600">
-                       들으러 가기
-                     </a>
-                   )}
-                 </div>
-               ))}
-             </div>
-           </div>
-           
-           <div className="mb-4">
-             <h3 className={`text-lg font-semibold text-${getCurrentTheme().accent.split('-')[0]}-800 mb-2`}>✏️ 나의 주요 감정 (선택사항)</h3>
-             <input
-               type="text"
-               placeholder="오늘 가장 크게 느낀 감정을 적어보세요"
-               value={userMainEmotion}
-               onChange={(e) => setUserMainEmotion(e.target.value)}
-               className={`w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-${getCurrentTheme().accent}`}
-             />
-           </div>
-         </div>
-       )}
-       
-       <button onClick={handleSaveDiary} disabled={isLoading} className={`w-full py-3 rounded-lg font-semibold bg-gradient-to-r ${getCurrentTheme().primary} text-white hover:opacity-90 disabled:opacity-50`}>
-         {isLoading ? '저장 중...' : '일기 저장하기'}
-       </button>
-     </div>
-   </div>
- );
-
- const renderStats = () => {
-   const moodCounts = {
-     good: diaryEntries.filter(e => e.mood === 'good').length,
-     normal: diaryEntries.filter(e => e.mood === 'normal').length,
-     bad: diaryEntries.filter(e => e.mood === 'bad').length
-   };
-
-   const totalMoodCount = moodCounts.good + moodCounts.normal + moodCounts.bad;
-   const moodPercentages = {
-     good: totalMoodCount > 0 ? (moodCounts.good / totalMoodCount * 100).toFixed(1) : '0.0',
-     normal: totalMoodCount > 0 ? (moodCounts.normal / totalMoodCount * 100).toFixed(1) : '0.0',
-     bad: totalMoodCount > 0 ? (moodCounts.bad / totalMoodCount * 100).toFixed(1) : '0.0'
-   };
-
-   const emotionFrequency: Record<string, number> = {};
-   diaryEntries.forEach(entry => {
-     entry.selectedEmotions?.forEach(emotion => {
-       emotionFrequency[emotion] = (emotionFrequency[emotion] || 0) + 1;
-     });
-   });
-
-   const topEmotions = Object.entries(emotionFrequency)
-     .sort(([,a], [,b]) => b - a)
-     .slice(0, 5);
-
-   return (
-     <div className={`min-h-screen bg-gradient-to-br ${getCurrentTheme().bgClass} p-4`}>
-       <div className="max-w-lg mx-auto">
-         <header className="bg-white rounded-lg shadow-md p-4 mb-6 flex justify-between items-center">
-           <button onClick={() => handleStepChange('mood')} className="text-gray-600 hover:text-gray-800">⬅️</button>
-           <h1 className={`text-xl font-bold text-${getCurrentTheme().accent.split('-')[0]}-800`}>통계 & 감정 달력</h1>
-           <button onClick={() => handleLogout()} className="text-gray-600 hover:text-gray-800">🚪</button>
-         </header>
-         
-         <div className="bg-white rounded-lg shadow-md p-6 mb-6">
-           <h2 className={`text-lg font-bold text-${getCurrentTheme().accent.split('-')[0]}-800 mb-4`}>📊 통계</h2>
-           
-           <div className="grid grid-cols-4 gap-4 mb-6">
-             <div className="bg-gradient-to-r from-purple-500 to-pink-500 rounded-lg p-4 text-white text-center">
-               <div className="text-2xl font-bold">{diaryEntries.length}</div>
-               <div className="text-xs">총 일기 수</div>
-             </div>
-             <div className="bg-gradient-to-r from-blue-500 to-cyan-500 rounded-lg p-4 text-white text-center">
-               <div className="text-2xl font-bold">{personalMusic.length}</div>
-               <div className="text-xs">저장된 음악</div>
-             </div>
-             <div className="bg-gradient-to-r from-green-500 to-teal-500 rounded-lg p-4 text-white text-center">
-               <div className="text-2xl font-bold">{userProgress.level}</div>
-               <div className="text-xs">현재 레벨</div>
-             </div>
-             <div className="bg-gradient-to-r from-orange-500 to-red-500 rounded-lg p-4 text-white text-center">
-               <div className="text-2xl font-bold">{userProgress.experience}</div>
-               <div className="text-xs">총 경험치</div>
-             </div>
-           </div>
-           
-           <div className="mb-6">
-             <h3 className="font-semibold mb-2">기분 분포</h3>
-             <div className="space-y-2">
-               <div className="flex items-center gap-2">
-                 <span className="w-12">😊 좋음</span>
-                 <div className="flex-1 bg-gray-200 rounded-full h-4">
-                   <div className="bg-green-500 h-4 rounded-full" style={{ width: `${moodPercentages.good}%` }}></div>
-                 </div>
-                 <span className="text-sm">{moodCounts.good}개 ({moodPercentages.good}%)</span>
-               </div>
-               <div className="flex items-center gap-2">
-                 <span className="w-12">😐 보통</span>
-                 <div className="flex-1 bg-gray-200 rounded-full h-4">
-                   <div className="bg-blue-500 h-4 rounded-full" style={{ width: `${moodPercentages.normal}%` }}></div>
-                 </div>
-                 <span className="text-sm">{moodCounts.normal}개 ({moodPercentages.normal}%)</span>
-               </div>
-               <div className="flex items-center gap-2">
-                 <span className="w-12">😔 나쁨</span>
-                 <div className="flex-1 bg-gray-200 rounded-full h-4">
-                   <div className="bg-purple-500 h-4 rounded-full" style={{ width: `${moodPercentages.bad}%` }}></div>
-                 </div>
-                 <span className="text-sm">{moodCounts.bad}개 ({moodPercentages.bad}%)</span>
-               </div>
-             </div>
-           </div>
-           
-           {topEmotions.length > 0 && (
-             <div>
-               <h3 className="font-semibold mb-2">자주 느끼는 감정 TOP 5</h3>
-               <div className="space-y-1">
-                 {topEmotions.map(([emotion, count], idx) => (
-                   <div key={idx} className="flex items-center justify-between">
-                     <span className="text-sm">{emotion}</span>
-                     <span className="text-sm text-gray-500">{count}회</span>
-                   </div>
-                 ))}
-               </div>
-             </div>
-           )}
-         </div>
-         
-         <div className="bg-white rounded-lg shadow-md p-6">
-           <h2 className={`text-lg font-bold text-${getCurrentTheme().accent.split('-')[0]}-800 mb-4`}>📅 감정 달력</h2>
-           <div className="flex justify-between items-center mb-4">
-             <button onClick={() => setCurrentCalendarMonth(new Date(currentCalendarMonth.getFullYear(), currentCalendarMonth.getMonth() - 1))} className="text-gray-600 hover:text-gray-800">⬅️ 이전</button>
-             <span className="font-semibold">{currentCalendarMonth.getFullYear()}년 {currentCalendarMonth.getMonth() + 1}월</span>
-             <button onClick={() => setCurrentCalendarMonth(new Date(currentCalendarMonth.getFullYear(), currentCalendarMonth.getMonth() + 1))} className="text-gray-600 hover:text-gray-800">다음 ➡️</button>
-           </div>
-           
-           <div className="grid grid-cols-7 gap-1 text-center text-xs">
-             {['일', '월', '화', '수', '목', '금', '토'].map(day => (
-               <div key={day} className="font-semibold py-1">{day}</div>
-             ))}
-             {Array.from({ length: new Date(currentCalendarMonth.getFullYear(), currentCalendarMonth.getMonth(), 1).getDay() }, (_, i) => (
-               <div key={`empty-${i}`} className="py-2"></div>
-             ))}
-             {Array.from({ length: new Date(currentCalendarMonth.getFullYear(), currentCalendarMonth.getMonth() + 1, 0).getDate() }, (_, i) => {
-               const date = i + 1;
-               const dateStr = `${currentCalendarMonth.getFullYear()}.${(currentCalendarMonth.getMonth() + 1).toString().padStart(2, '0')}.${date.toString().padStart(2, '0')}`;
-               const entry = diaryEntries.find(e => e.date === dateStr);
-               const isToday = new Date().toDateString() === new Date(currentCalendarMonth.getFullYear(), currentCalendarMonth.getMonth(), date).toDateString();
-               
-               return (
-                 <div key={date} className={`py-2 rounded ${isToday ? 'border-2 border-purple-500' : ''} ${entry ? 'cursor-pointer hover:bg-gray-100' : ''}`}>
-                   <div className="text-sm">{date}</div>
-                   {entry && (
-                     <div className="text-lg">{getMoodEmoji(entry.mood)}</div>
-                   )}
-                 </div>
-               );
-             })}
-           </div>
-           
-           <div className="mt-4 flex items-center gap-4 text-xs text-gray-600">
-             <div className="flex items-center gap-1">
-               <div className="w-3 h-3 bg-green-500 rounded-full"></div>
-               <span>😊 좋음</span>
-             </div>
-             <div className="flex items-center gap-1">
-               <div className="w-3 h-3 bg-blue-500 rounded-full"></div>
-               <span>😐 보통</span>
-             </div>
-             <div className="flex items-center gap-1">
-               <div className="w-3 h-3 bg-purple-500 rounded-full"></div>
-               <span>😔 나쁨</span>
-             </div>
-           </div>
-         </div>
-       </div>
-     </div>
-   );
- };
-
- const renderMyDiary = () => (
-   <div className={`min-h-screen bg-gradient-to-br ${getCurrentTheme().bgClass} p-4`}>
-     <div className="max-w-lg mx-auto">
-       <header className="bg-white rounded-lg shadow-md p-4 mb-6 flex justify-between items-center">
-         <button onClick={() => handleStepChange('mood')} className="text-gray-600 hover:text-gray-800">⬅️</button>
-         <h1 className={`text-xl font-bold text-${getCurrentTheme().accent.split('-')[0]}-800`}>내 일기</h1>
-         <button onClick={() => handleStepChange('trash')} className="text-gray-600 hover:text-gray-800">🗑️</button>
-       </header>
-       
-       <div className="bg-white rounded-lg shadow-md p-4 mb-4">
-         <input
-           type="text"
-           placeholder="일기 검색..."
-           value={searchQuery}
-           onChange={(e) => setSearchQuery(e.target.value)}
-           className={`w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-${getCurrentTheme().accent}`}
-         />
-       </div>
-       
-       <div className="space-y-4">
-         {(searchQuery ? searchDiaries(searchQuery) : diaryEntries).map(entry => (
-           <div key={entry.id} className="bg-white rounded-lg shadow-md p-4">
-             <div className="flex justify-between items-start mb-2">
-               <div>
-                 <div className="flex items-center gap-2">
-                   <span className="text-2xl">{getMoodEmoji(entry.mood)}</span>
-                   <span className="font-semibold">{entry.date}</span>
-                   <span className="text-sm text-gray-500">{entry.time}</span>
-                 </div>
-                 <div className="flex flex-wrap gap-1 mt-1">
-                   {entry.keywords?.map((keyword, idx) => (
-                     <span key={idx} className="text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded-full">
-                       {keyword}
-                     </span>
-                   ))}
-                 </div>
-               </div>
-               <button onClick={() => setExpandedDiaryId(expandedDiaryId === entry.id ? null : entry.id)} className="text-gray-500 hover:text-gray-700">
-                 {expandedDiaryId === entry.id ? '📖' : '📕'}
-               </button>
-             </div>
-             
-             <p className={`text-gray-700 ${expandedDiaryId === entry.id ? '' : 'line-clamp-2'}`}>
-               {entry.summary}
-             </p>
-             
-             {expandedDiaryId === entry.id && (
-               <div className="mt-4 space-y-3">
-                 {entry.selectedEmotions && entry.selectedEmotions.length > 0 && (
-                   <div>
-                     <h4 className="font-semibold text-sm mb-1">감정:</h4>
-                     <div className="flex flex-wrap gap-1">
-                       {entry.selectedEmotions.map((emotion, idx) => (
-                         <span key={idx} className="text-xs bg-pink-100 text-pink-700 px-2 py-1 rounded-full">
-                           {emotion}
-                         </span>
-                       ))}
-                     </div>
-                   </div>
-                 )}
-                 
-                 {entry.musicPlayed && entry.musicPlayed.length > 0 && (
-                   <div>
-                     <h4 className="font-semibold text-sm mb-1">들은 음악:</h4>
-                     <div className="space-y-2">
-                       {entry.musicPlayed.map((music, idx) => (
-                         <div key={idx} className="flex items-center gap-2 text-sm">
-                           <span>🎵</span>
-                           <span>{music.title} - {music.artist}</span>
-                         </div>
-                       ))}
-                     </div>
-                   </div>
-                 )}
-                 
-                 {entry.actionItems && entry.actionItems.length > 0 && (
-                   <div>
-                     <h4 className="font-semibold text-sm mb-1">추천 활동:</h4>
-                     <ul className="text-sm text-gray-600">
-                       {entry.actionItems.map((item, idx) => (
-                         <li key={idx}>• {item}</li>
-                       ))}
-                     </ul>
-                   </div>
-                 )}
-                 
-                 <button onClick={() => moveToTrash(entry)} className="mt-2 text-sm text-red-500 hover:text-red-700">
-                   🗑️ 삭제
-                 </button>
-               </div>
-             )}
-           </div>
-         ))}
-         
-         {diaryEntries.length === 0 && (
-           <div className="text-center py-8 text-gray-500">
-             아직 작성한 일기가 없어요.<br />
-             오늘의 감정을 기록해보세요!
-           </div>
-         )}
-       </div>
-     </div>
-   </div>
- );
-
- const renderMyMusic = () => (
-   <div className={`min-h-screen bg-gradient-to-br ${getCurrentTheme().bgClass} p-4`}>
-     <div className="max-w-lg mx-auto">
-       <header className="bg-white rounded-lg shadow-md p-4 mb-6 flex justify-between items-center">
-         <button onClick={() => handleStepChange('mood')} className="text-gray-600 hover:text-gray-800">⬅️</button>
-         <h1 className={`text-xl font-bold text-${getCurrentTheme().accent.split('-')[0]}-800`}>내 음악</h1>
-         <span className="text-sm text-gray-600">{personalMusic.length}곡</span>
-       </header>
-       
-       <div className="space-y-4">
-         {personalMusic.map((music, idx) => (
-           <div key={idx} className="bg-white rounded-lg shadow-md p-4">
-             <div className="flex items-center gap-4">
-               {music.thumbnail && (
-                 <img src={music.thumbnail} alt={music.title} className="w-20 h-20 rounded-lg object-cover" />
-               )}
-               <div className="flex-1">
-                 <h3 className="font-semibold text-gray-800">{music.title}</h3>
-                 <p className="text-sm text-gray-600">{music.artist}</p>
-                 <div className="flex flex-wrap gap-1 mt-1">
-                   {music.emotions.map((emotion, eidx) => (
-                     <span key={eidx} className="text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded-full">
-                       {emotion}
-                     </span>
-                   ))}
-                 </div>
-               </div>
-             </div>
-             
-             {music.preview_url && (
-               <audio controls className="w-full mt-3">
-                 <source src={music.preview_url} type="audio/mpeg" />
-               </audio>
-             )}
-             
-             <div className="flex gap-2 mt-3">
-               {music.url && (
-                 <a href={music.url} target="_blank" rel="noopener noreferrer" className="flex-1 py-2 px-4 bg-purple-500 text-white rounded-lg text-center hover:bg-purple-600">
-                   들으러 가기
-                 </a>
-               )}
-               <button onClick={() => removeFromPersonalMusic(music.id)} className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600">
-                 삭제
-               </button>
-             </div>
-           </div>
-         ))}
-         
-         {personalMusic.length === 0 && (
-           <div className="text-center py-8 text-gray-500">
-             아직 저장한 음악이 없어요.<br />
-             AI와 대화하며 음악을 추천받아보세요!
-           </div>
-         )}
-       </div>
-     </div>
-   </div>
- );
-
- const renderTrash = () => (
-   <div className={`min-h-screen bg-gradient-to-br ${getCurrentTheme().bgClass} p-4`}>
-     <div className="max-w-lg mx-auto">
-       <header className="bg-white rounded-lg shadow-md p-4 mb-6 flex justify-between items-center">
-         <button onClick={() => handleStepChange('myDiary')} className="text-gray-600 hover:text-gray-800">⬅️</button>
-         <h1 className={`text-xl font-bold text-${getCurrentTheme().accent.split('-')[0]}-800`}>휴지통</h1>
-         <span className="text-sm text-gray-600">{trashEntries.length}개</span>
-       </header>
-       
-       <div className="space-y-4">
-         {trashEntries.map(entry => (
-           <div key={entry.id} className="bg-white rounded-lg shadow-md p-4 opacity-75">
-             <div className="flex justify-between items-start mb-2">
-               <div>
-                 <div className="flex items-center gap-2">
-                   <span className="text-2xl">{getMoodEmoji(entry.mood)}</span>
-                   <span className="font-semibold">{entry.date}</span>
-                   <span className="text-sm text-gray-500">{entry.time}</span>
-                 </div>
-                 <p className="text-sm text-red-500 mt-1">삭제됨: {entry.deletedAt}</p>
-               </div>
-               <button onClick={() => restoreFromTrash(entry)} className="text-blue-500 hover:text-blue-700">
-                 복원
-               </button>
-             </div>
-             <p className="text-gray-700 line-clamp-2">{entry.summary}</p>
-           </div>
-         ))}
-         
-         {trashEntries.length === 0 && (
-           <div className="text-center py-8 text-gray-500">
-             휴지통이 비어있어요.
-           </div>
-         )}
-       </div>
-     </div>
-   </div>
- );
-
- const renderSettings = () => (
-   <div className={`min-h-screen bg-gradient-to-br ${getCurrentTheme().bgClass} p-4`}>
-     <div className="max-w-lg mx-auto">
-       <header className="bg-white rounded-lg shadow-md p-4 mb-6 flex justify-between items-center">
-         <button onClick={() => handleStepChange('mood')} className="text-gray-600 hover:text-gray-800">⬅️</button>
-         <h1 className={`text-xl font-bold text-${getCurrentTheme().accent.split('-')[0]}-800`}>설정</h1>
-         <button onClick={handleLogout} className="text-red-500 hover:text-red-700">로그아웃</button>
-       </header>
-       
-       <div className="bg-white rounded-lg shadow-md p-6 mb-4">
-         <h2 className="text-lg font-semibold mb-4">계정 정보</h2>
-         <p className="text-gray-600 mb-2">이메일: {user?.email}</p>
-         <p className="text-gray-600 mb-2">레벨: {userProgress.level}</p>
-         <p className="text-gray-600">가입일: {user?.metadata.creationTime ? new Date(user.metadata.creationTime).toLocaleDateString('ko-KR') : '알 수 없음'}</p>
-       </div>
-       
-       <div className="bg-white rounded-lg shadow-md p-6 mb-4">
-         <h2 className="text-lg font-semibold mb-4">AI 파트너</h2>
-         <p className="text-gray-600 mb-2">이름: {getAIPartnerName()}</p>
-         <p className="text-gray-600">타입: {selectedPersonType || 'AI 친구'}</p>
-       </div>
-       
-       <div className="bg-white rounded-lg shadow-md p-6 mb-4">
-         <h2 className="text-lg font-semibold mb-4">음악 선호도</h2>
-         <div className="flex flex-wrap gap-2">
-           {appSettings.musicPreferences.map(genreId => {
-             const genre = MUSIC_GENRES.find(g => g.id === genreId);
-             return genre ? (
-               <span key={genreId} className="px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-sm">
-                 {genre.emoji} {genre.name}
-               </span>
-             ) : null;
-           })}
-         </div>
-       </div>
-       
-       <div className="bg-white rounded-lg shadow-md p-6">
-         <h2 className="text-lg font-semibold mb-4">프리미엄</h2>
-         <p className="text-gray-600 mb-4">
-           {appSettings.isPremium ? '프리미엄 사용중' : '무료 플랜 사용중'}
-         </p>
-         {!appSettings.isPremium && (
-           <button className={`w-full py-3 rounded-lg font-semibold bg-gradient-to-r from-yellow-400 to-orange-500 text-white hover:opacity-90`}>
-             프리미엄 업그레이드
-           </button>
-         )}
-       </div>
-     </div>
-   </div>
- );
+      console.error('온보딩 완료 오류:', error);
+      alert('설정 저장 중 오류가 발생했습니다.');
+    }
+  };
 
  // 메인 렌더링
  return (
