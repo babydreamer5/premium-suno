@@ -9,7 +9,8 @@
       "Bash(npm run:*)",
       "Bash(true)",
       "Bash(firebase login:*)",
-      "Bash(taskkill:*)"
+      "Bash(taskkill:*)",
+      "Bash(grep:*)"
     ],
     "deny": []
   }

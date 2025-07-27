@@ -1192,7 +1192,9 @@ export const EMOTION_MUSIC_DATABASE: MusicItem[] = [
     genre: 'electronic',
     description: '클럽에서 인기 높은 테크노 EDM',
     intro_message: '파티의 하이라이트에 꼭 어울리는 곡!',
-    mood_tags: ['intense', 'party', 'energetic']
+    mood_tags: ['intense', 'party', 'energetic'],
+    url: 'https://open.spotify.com/track/6ho0GyrWZN3mhi9zVRW7xi',
+    thumbnail: 'https://image-cdn-fa.spotifycdn.com/image/ab67616d00001e029367c1ee2eec0bf3a04b4868'
   },
   {
     id: 'avicii_the_nights',
@@ -1202,7 +1204,9 @@ export const EMOTION_MUSIC_DATABASE: MusicItem[] = [
     genre: 'electronic',
     description: '희망 메시지와 꿈을 담은 전설적 일렉트로닉 송',
     intro_message: '꿈과 용기가 필요할 때 들어봐요!',
-    mood_tags: ['uplifting', 'hopeful', 'dance']
+    mood_tags: ['uplifting', 'hopeful', 'dance'],
+    url: 'https://open.spotify.com/track/0ct6r3EGTcMLPtrXHDvVjc',
+    thumbnail: 'https://image-cdn-ak.spotifycdn.com/image/ab67616d00001e020ae4f4d42e4a09f3a29f64ad'
   },
   {
     id: 'alan_walker_faded',
@@ -1212,7 +1216,9 @@ export const EMOTION_MUSIC_DATABASE: MusicItem[] = [
     genre: 'electronic',
     description: '신비한 분위기와 중독성 넘치는 일렉트로닉',
     intro_message: '몽환적이고 감성적인 순간에 어울려요.',
-    mood_tags: ['dreamy', 'emotional', 'trendy']
+    mood_tags: ['dreamy', 'emotional', 'trendy'],
+    url: 'https://open.spotify.com/track/698ItKASDavgwZ3WjaWjtz',
+    thumbnail: 'https://image-cdn-fa.spotifycdn.com/image/ab67616d00001e02a108e07c661f9fc54de9c43a'
   },
   {
     id: 'zedd_stay',
@@ -1222,7 +1228,9 @@ export const EMOTION_MUSIC_DATABASE: MusicItem[] = [
     genre: 'electronic',
     description: '신나는 드롭과 감성적인 멜로디가 조화된 EDM',
     intro_message: '잔잔함과 에너지를 모두 느낄 수 있어요!',
-    mood_tags: ['catchy', 'dance', 'melodic']
+    mood_tags: ['catchy', 'dance', 'melodic'],
+    url: 'https://open.spotify.com/track/6uBhi9gBXWjanegOb2Phh0',
+    thumbnail: 'https://image-cdn-ak.spotifycdn.com/image/ab67616d00001e02b993cba8ff7d0a8e9ee18d46'
   },
   {
     id: 'illeniium_good_things_fall_apart',
@@ -1232,7 +1240,9 @@ export const EMOTION_MUSIC_DATABASE: MusicItem[] = [
     genre: 'electronic',
     description: '감성적인 가사와 파워풀한 사운드의 곡',
     intro_message: '슬플 때 위로받고 싶다면 추천!',
-    mood_tags: ['emotional', 'uplifting', 'energetic']
+    mood_tags: ['emotional', 'uplifting', 'energetic'],
+    url: 'https://open.spotify.com/track/3LxG9HkMMFP0MZuiw3O2rF',
+    thumbnail: 'https://image-cdn-fa.spotifycdn.com/image/ab67616d00001e02529c6fa82d23f65076c1579b'
   },
   {
     id: 'kygo_hot_stuff',
@@ -1242,7 +1252,9 @@ export const EMOTION_MUSIC_DATABASE: MusicItem[] = [
     genre: 'electronic',
     description: '레트로 디스코와 현대 사운드의 만남',
     intro_message: '파티분위기로 금방 전환되는 음악이에요!',
-    mood_tags: ['retro', 'upbeat', 'dance']
+    mood_tags: ['retro', 'upbeat', 'dance'],
+    url: 'https://open.spotify.com/track/00ETaeHUQ6lops3oWU1Wrt',
+    thumbnail: 'https://image-cdn-ak.spotifycdn.com/image/ab67616d00001e028fc0ee2f829a7138af579c97'
   },
   {
     id: 'shouse_love_tonight',
@@ -1252,7 +1264,9 @@ export const EMOTION_MUSIC_DATABASE: MusicItem[] = [
     genre: 'electronic',
     description: '다같이 즐기기 좋은 전세계적 밈 EDM',
     intro_message: '모두 함께 신나고 싶을 때 강추!',
-    mood_tags: ['uplifting', 'party', 'catchy']
+    mood_tags: ['uplifting', 'party', 'catchy'],
+    url: 'https://open.spotify.com/track/1u73tmG4xQschbK8cXxSD9',
+    thumbnail: 'https://image-cdn-ak.spotifycdn.com/image/ab67616d00001e0281376e47003d45f6513b5657'
   },
   {
     id: 'lost_frequencies_where_are_you_now',
@@ -1262,7 +1276,9 @@ export const EMOTION_MUSIC_DATABASE: MusicItem[] = [
     genre: 'electronic',
     description: '감미로운 멜로디와 드롭이 인상적인 EDM',
     intro_message: '그리움이 남을 때 들어보는 곡!',
-    mood_tags: ['catchy', 'dreamy', 'energetic']
+    mood_tags: ['catchy', 'dreamy', 'energetic'],
+    url: 'https://open.spotify.com/track/2u6jeaKAJlMoF6TIXCtNA8',
+    thumbnail: 'https://image-cdn-ak.spotifycdn.com/image/ab67616d00001e029f0952c527b4a95e86760adc'
   },
   {
     id: 'joel_corry_head_and_heart',
@@ -1272,7 +1288,9 @@ export const EMOTION_MUSIC_DATABASE: MusicItem[] = [
     genre: 'electronic',
     description: '밝은 여름 바이브의 글로벌 EDM',
     intro_message: '상큼한 무드가 필요할 때 추천!',
-    mood_tags: ['upbeat', 'dance', 'fresh']
+    mood_tags: ['upbeat', 'dance', 'fresh'],
+    url: 'https://open.spotify.com/track/6cx06DFPPHchuUAcTxznu9',
+    thumbnail: 'https://image-cdn-ak.spotifycdn.com/image/ab67616d00001e0291e93c59bacfe819db9601eb'
   },
   {
     id: 'bts_my_universe',
@@ -1282,7 +1300,9 @@ export const EMOTION_MUSIC_DATABASE: MusicItem[] = [
     genre: 'electronic',
     description: '세계적 협업과 환상적 일렉트로닉 사운드',
     intro_message: '좌절감을 용기로 바꿔주는 특별한 곡!',
-    mood_tags: ['uplifting', 'romantic', 'dreamy']
+    mood_tags: ['uplifting', 'romantic', 'dreamy'],
+    url: 'https://open.spotify.com/track/46HNZY1i7O6jwTA7Slo2PI',
+    thumbnail: 'https://image-cdn-ak.spotifycdn.com/image/ab67616d00001e02ec10f247b100da1ce0d80b6d'
   },
   {
     id: 'alesso_words',
@@ -1292,7 +1312,9 @@ export const EMOTION_MUSIC_DATABASE: MusicItem[] = [
     genre: 'electronic',
     description: '상큼한 여성 보컬과 EDM의 조화',
     intro_message: '기분전환용 상쾌한 곡이에요!',
-    mood_tags: ['catchy', 'dance', 'energetic']
+    mood_tags: ['catchy', 'dance', 'energetic'],
+    url: 'https://open.spotify.com/track/1bgKMxPQU7JIZEhNsM1vFs',
+    thumbnail: 'https://image-cdn-ak.spotifycdn.com/image/ab67616d00001e028f9c368d8d0f5792ffc5d38e'
   },
   {
     id: 'jvke_golden_hour',
@@ -1302,7 +1324,9 @@ export const EMOTION_MUSIC_DATABASE: MusicItem[] = [
     genre: 'electronic',
     description: '따뜻한 노을 빛 감성의 일렉트로닉 팝',
     intro_message: '로맨틱한 순간에 어울리는 곡!',
-    mood_tags: ['romantic', 'catchy', 'emotional']
+    mood_tags: ['romantic', 'catchy', 'emotional'],
+    url: 'https://open.spotify.com/track/4yNk9iz9WVJikRFle3XEvn',
+    thumbnail: 'https://image-cdn-ak.spotifycdn.com/image/ab67616d00001e020af4476af141051c728ee8b9'
   },
   {
     id: 'purple_disco_machine_fireworks',
@@ -1312,7 +1336,9 @@ export const EMOTION_MUSIC_DATABASE: MusicItem[] = [
     genre: 'electronic',
     description: '펑키와 뉴디스코 사운드가 어우러진 곡',
     intro_message: '불꽃처럼 설레는 에너지가 필요할 때!',
-    mood_tags: ['funky', 'upbeat', 'dance']
+    mood_tags: ['funky', 'upbeat', 'dance'],
+    url: 'https://open.spotify.com/track/413WXUEkGKgchpUSP6ee46',
+    thumbnail: 'https://image-cdn-ak.spotifycdn.com/image/ab67616d00001e02506d02a4cf28b308e608a25e'
   },
   {
     id: 'alan_walker_sweet_dreams',
@@ -1322,18 +1348,11 @@ export const EMOTION_MUSIC_DATABASE: MusicItem[] = [
     genre: 'electronic',
     description: '몽환적 사운드와 파워풀한 드롭의 EDM',
     intro_message: '특별한 밤, 판타지 세계에 빠지고 싶을 때!',
-    mood_tags: ['dreamy', 'powerful', 'intense']
+    mood_tags: ['dreamy', 'powerful', 'intense'],
+    url: 'https://open.spotify.com/track/4uDhts78RdwIDjEqPrYVKp',
+    thumbnail: 'https://image-cdn-ak.spotifycdn.com/image/ab67616d00001e027327806c243a77cde4502d6a'
   },
-  {
-    id: 'kygo_best_of_me',
-    title: 'Best Of Me (feat. Wrabel)',
-    artist: 'Kygo',
-    emotions: ['희망', '성찰', '감동', '행복', '여유'],
-    genre: 'electronic',
-    description: '감동적 사운드와 따스한 목소리의 곡',
-    intro_message: '나만의 최고의 순간을 만들고 싶다면 추천!',
-    mood_tags: ['uplifting', 'emotional', 'dreamy']
-  },
+  /* Removed kygo_best_of_me entry as no valid track information was found */
   {
     id: 'fred_again_delilah',
     title: 'Delilah (pull me out of this)',
@@ -1342,7 +1361,9 @@ export const EMOTION_MUSIC_DATABASE: MusicItem[] = [
     genre: 'electronic',
     description: '몽환적이면서도 생동감 있는 트렌디 EDM',
     intro_message: '새벽 감성, 신나고 싶을 때 들어보세요!',
-    mood_tags: ['dreamy', 'catchy', 'fresh']
+    mood_tags: ['dreamy', 'catchy', 'fresh'],
+    url: 'https://open.spotify.com/track/0Ftrkz2waaHcjKb4qYvLmz',
+    thumbnail: 'https://image-cdn-ak.spotifycdn.com/image/ab67616d00001e029c856c6f2c6161af49446bf8'
   },
   {
     id: 'porter_robinson_get_your_wish',
@@ -1352,7 +1373,9 @@ export const EMOTION_MUSIC_DATABASE: MusicItem[] = [
     genre: 'electronic',
     description: '따뜻한 희망을 담은 아름다운 일렉트로닉',
     intro_message: '꿈을 꾸고 싶다면 꼭 들어보세요!',
-    mood_tags: ['inspiring', 'uplifting', 'dreamy']
+    mood_tags: ['inspiring', 'uplifting', 'dreamy'],
+    url: 'https://open.spotify.com/track/6aUfT9QOcTHhxLNrf1aVR8',
+    thumbnail: 'https://image-cdn-ak.spotifycdn.com/image/ab67616d00001e027d6ac8b4a84ad4b342050d87'
   },
   {
     id: 'sigala_melody',
@@ -1362,7 +1385,9 @@ export const EMOTION_MUSIC_DATABASE: MusicItem[] = [
     genre: 'electronic',
     description: '트렌디하고 밝은 분위기의 신나는 EDM',
     intro_message: '기분 좋은 하우스 사운드가 필요할 때 추천!',
-    mood_tags: ['upbeat', 'dance', 'happy']
+    mood_tags: ['upbeat', 'dance', 'happy'],
+    url: 'https://open.spotify.com/track/4J0ynASMkErhHjygUos2DS',
+    thumbnail: 'https://image-cdn-ak.spotifycdn.com/image/ab67616d00001e029f0952c527b4a95e86760adc'
   },
   {
     id: 'sofie_tukker_summer_in_new_york',
@@ -1372,7 +1397,9 @@ export const EMOTION_MUSIC_DATABASE: MusicItem[] = [
     genre: 'electronic',
     description: '여름의 자유로움과 경쾌함이 담긴 곡',
     intro_message: '여름 기분을 만끽하고 싶다면 추천!',
-    mood_tags: ['fun', 'chill', 'party']
+    mood_tags: ['fun', 'chill', 'party'],
+    url: 'https://open.spotify.com/track/5kyJ6sznnWACqHbw65p34Q',
+    thumbnail: 'https://image-cdn-fa.spotifycdn.com/image/ab67616d00001e02035ef25cd05ffba3078e7027'
   }
 ];
 
