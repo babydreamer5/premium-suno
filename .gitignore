@@ -69,3 +69,5 @@ nul
 
 # TypeScript
 *.tsbuildinfo
+
+.vercel
