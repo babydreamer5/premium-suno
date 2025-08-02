@@ -113,6 +113,7 @@ const App: React.FC = memo(() => {
   const [publicMusicLibrary, setPublicMusicLibrary] = useState<SunoMusicTask[]>([]);        
   const [isGeneratingMusic, setIsGeneratingMusic] = useState(false);
   const [attempts, setAttempts] = useState(0); // 누락된 attempts 상태 추가
+  const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>('all'); // 음악 라이브러리 필터 상태
 
   // localStorage에서 데이터 로드              
   useEffect(() => {              
@@ -1513,7 +1514,6 @@ ${userMessages}
 
   // 음악 라이브러리 화면          
   const renderMusicLibrary = () => {          
-    const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>('all');          
               
     const filteredMusic = selectedCategoryFilter === 'all'           
       ? publicMusicLibrary           
