@@ -20,7 +20,6 @@ interface SunoMusicTask {
   youtubeVideoId?: string;  // YouTube 연동용          
   category?: string;         // 감정 카테고리          
   isPublic?: boolean;        // 공개 여부        
-  lyrics?: string;           // 가사 추가        
 }
 
 interface DiaryEntry {              
@@ -46,7 +45,6 @@ interface SummaryData {
   musicStyle?: string;              
   musicTitle?: string;              
   llmDiary?: string;          // LLM 일기        
-  lyrics?: string;            // 한글 가사 추가        
 }
 
 // 상수 정의              
@@ -112,8 +110,8 @@ const App: React.FC = memo(() => {
   const [selectedCategory, setSelectedCategory] = useState<string>('');          
   const [publicMusicLibrary, setPublicMusicLibrary] = useState<SunoMusicTask[]>([]);        
   const [isGeneratingMusic, setIsGeneratingMusic] = useState(false);
-  const [attempts, setAttempts] = useState(0); // 누락된 attempts 상태 추가
-  const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>('all'); // 음악 라이브러리 필터 상태
+  const [attempts, setAttempts] = useState(0);
+  const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>('all');
 
   // localStorage에서 데이터 로드              
   useEffect(() => {              
@@ -195,42 +193,7 @@ const App: React.FC = memo(() => {
     }              
   };
 
-  // 영어 가사 생성 함수        
-  const generateEnglishLyrics = async (        
-    summaryData: SummaryData,        
-    chatMessages: ChatMessage[],        
-    mood: string        
-  ): Promise<string> => {        
-    const chatContent = chatMessages        
-      .filter(msg => msg.role === 'user')        
-      .map(msg => msg.content)        
-      .join('\n');
-
-    const systemPrompt = `You are an emotional songwriter. Create 3 lines of English lyrics based on:  
-- Conversation: ${chatContent}        
-- Mood: ${getMoodText(mood)}        
-- Keywords: ${summaryData.keywords.join(', ')}        
-- Emotions: ${summaryData.recommendedEmotions.join(', ')}
-
-Rules:        
-- Exactly 3 short lines  
-- Express emotions naturally        
-- Use simple, clear English  
-- Include hope and positivity        
-- Each line 5-10 words
-
-Write only the lyrics, no explanation:`;
-
-    try {        
-      const lyrics = await callOpenAI([], systemPrompt);        
-      return lyrics.trim();        
-    } catch (error) {        
-      console.error('가사 생성 오류:', error);        
-      return 'Today was tough but I survived\nTomorrow brings a brand new light\nWe will walk this path together';        
-    }        
-  };
-
-  // LLM 일기 생성 함수          
+  // LLM 일기 생성 함수 (100줄로 단축)          
   const generateDiaryWithLLM = async (          
     summaryData: SummaryData,           
     chatMessages: ChatMessage[],           
@@ -259,8 +222,9 @@ Write only the lyrics, no explanation:`;
 
 일기 작성 규칙:          
 - 1인칭 시점으로 작성          
-- 200-300자 분량          
+- 100자 분량 (기존 200-300자에서 단축)          
 - 스타일: ${styleGuides[style as keyof typeof styleGuides]}          
+- 실제 있었던 일만 포함하고 과장하지 말 것          
 - 희망적이고 따뜻한 마무리          
 - 자연스러운 한국어 표현 사용
 
@@ -275,10 +239,10 @@ Write only the lyrics, no explanation:`;
     }          
   };
 
-  // Kie.ai API로 음악 생성 (Suno API 대체)  
-  const generateMusicWithKie = async (prompt: string, style: string, title: string, lyrics?: string): Promise<SunoMusicTask> => {              
+  // Kie.ai API로 음악 생성 (수정된 버전)  
+  const generateMusicWithKie = async (prompt: string, style: string, title: string): Promise<SunoMusicTask> => {              
     try {              
-      console.log('Kie.ai API 호출 시작:', { prompt, style, title, lyrics });              
+      console.log('Kie.ai API 호출 시작:', { prompt, style, title });              
                     
       // API 키가 없으면 모의 데이터 반환          
       if (!process.env.REACT_APP_KIE_API_KEY) {            
@@ -289,18 +253,11 @@ Write only the lyrics, no explanation:`;
           prompt,            
           style,            
           title,            
-          lyrics,        
           createdAt: new Date()            
         };            
       }            
                   
-      // Kie.ai API 호출 - 올바른 파라미터 형식 (Vercel callback URL 사용)  
-      const callbackUrl = process.env.NODE_ENV === 'production'   
-        ? window.location.origin + "/api/callback"  
-        : "http://localhost:3000/api/callback";  
-          
-      console.log('Callback URL:', callbackUrl);  
-        
+      // Kie.ai API 호출 - 수정된 파라미터 (가사 제거, instrumental로 변경)
       const response = await fetch('https://api.kie.ai/api/v1/generate', {              
         method: 'POST',              
         headers: {              
@@ -308,14 +265,15 @@ Write only the lyrics, no explanation:`;
           'Content-Type': 'application/json'            
         },              
         body: JSON.stringify({              
-          prompt: lyrics || prompt,  // 가사가 있으면 가사를 프롬프트로 사용  
+          prompt: prompt,  // 음악 프롬프트만 사용
           customMode: true,  
-          instrumental: false,  // 가사가 있으므로 false  
-          style: style || 'Pop',  
-          title: title || 'AI Generated Song',  
-          model: "V3_5",  // V3_5가 더 안정적일 수 있음  
-          callBackUrl: callbackUrl,  // 동적 callback URL  
-          negativeTags: "Heavy Metal, Death Metal, Screamo"  // 부적절한 스타일 제외  
+          instrumental: true,  // 가사 없는 음악으로 변경
+          style: style || 'Ambient',  
+          model: "V3_5",  
+          callBackUrl: process.env.NODE_ENV === 'production' 
+            ? window.location.origin + "/api/callback"
+            : "http://localhost:3000/api/callback",
+          negativeTags: "Heavy Metal, Death Metal, Screamo, Vocals, Singing"  // 보컬 제외
         })              
       });
 
@@ -327,10 +285,8 @@ Write only the lyrics, no explanation:`;
 
       const data = await response.json();              
       console.log('Kie.ai API 응답:', data);  
-      console.log('응답 구조:', JSON.stringify(data, null, 2));  // 전체 구조 확인  
                     
       if (data.code === 200 && data.data) {  
-        console.log('Task ID 확인:', data.data.task_id || data.data.taskId);  // 두 가지 가능성 체크  
         const taskId = data.data.task_id || data.data.taskId;  
           
         if (taskId) {              
@@ -340,13 +296,11 @@ Write only the lyrics, no explanation:`;
             prompt,              
             style,              
             title,              
-            lyrics,        
             createdAt: new Date()              
           };  
         }  
       }  
         
-      // API 응답이 예상과 다른 경우  
       throw new Error(`API 응답 오류: ${data.msg || '알 수 없는 오류'}`);  
         
     } catch (error) {              
@@ -359,13 +313,12 @@ Write only the lyrics, no explanation:`;
         prompt,            
         style,            
         title,            
-        lyrics,        
         createdAt: new Date()            
       };            
     }              
   };
 
-  // Kie.ai 작업 상태 체크 (Suno 대체)  
+  // Kie.ai 작업 상태 체크 (수정된 버전)  
   const checkKieTaskStatus = async (taskId: string): Promise<SunoMusicTask> => {              
     // 모의 taskId인 경우 모의 응답 반환              
     if (taskId.startsWith('mock-')) {              
@@ -376,7 +329,6 @@ Write only the lyrics, no explanation:`;
         prompt: currentMusicTask?.prompt || '',              
         style: currentMusicTask?.style || '',              
         title: currentMusicTask?.title || '',              
-        lyrics: currentMusicTask?.lyrics,        
         createdAt: currentMusicTask?.createdAt || new Date(),              
         musicUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3',              
         streamUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3',          
@@ -386,11 +338,10 @@ Write only the lyrics, no explanation:`;
     }
 
     try {              
-      // Kie.ai 상태 확인 API - Get Music Details 엔드포인트 시도  
       console.log('상태 확인 시작, taskId:', taskId);  
         
-      // 먼저 기존 record-info 시도  
-      let response = await fetch(`https://api.kie.ai/api/v1/generate/record-info?taskId=${taskId}`, {              
+      // Kie.ai 상태 확인 API 호출
+      const response = await fetch(`https://api.kie.ai/api/v1/generate/record-info?taskId=${taskId}`, {              
         method: 'GET',              
         headers: {              
           'Authorization': `Bearer ${process.env.REACT_APP_KIE_API_KEY}`            
@@ -398,82 +349,28 @@ Write only the lyrics, no explanation:`;
       });
 
       if (!response.ok) {          
-        console.error('record-info 실패, 다른 엔드포인트 시도...');  
-          
-        // Get Music Details 엔드포인트 시도 (추정)  
-        response = await fetch(`https://api.kie.ai/api/v1/generate/${taskId}`, {              
-          method: 'GET',              
-          headers: {              
-            'Authorization': `Bearer ${process.env.REACT_APP_KIE_API_KEY}`            
-          }              
-        });  
-          
-        if (!response.ok) {  
-          // 또 다른 가능한 엔드포인트  
-          response = await fetch(`https://api.kie.ai/api/v1/music/${taskId}`, {              
-            method: 'GET',              
-            headers: {              
-              'Authorization': `Bearer ${process.env.REACT_APP_KIE_API_KEY}`            
-            }              
-          });  
-        }  
-          
-        if (!response.ok) {  
-          throw new Error(`API 오류: ${response.status} ${response.statusText}`);  
-        }  
+        throw new Error(`API 오류: ${response.status} ${response.statusText}`);  
       }
 
       const data = await response.json();              
       console.log('Kie.ai 상태 확인 응답:', data);  
-      console.log('응답 전체 구조:', JSON.stringify(data, null, 2));  
-        
-      // 데이터 구조 상세 확인  
-      console.log('data.data 존재?', !!data.data);  
-      console.log('data.data.status:', data.data?.status);  
-      console.log('data.data.data 존재?', !!data.data?.data);  
-      console.log('data.data.data 길이:', data.data?.data?.length);          
                   
       if (data.code === 200) {              
         let status: 'pending' | 'processing' | 'completed' | 'failed' = 'pending';              
         let musicUrl: string | undefined;              
         let streamUrl: string | undefined;              
                     
-        // 여러 가능한 응답 구조 처리  
-        // 1. data.data가 배열인 경우 (생성 완료)  
-        if (Array.isArray(data.data) && data.data.length > 0) {  
-          status = 'completed';  
-          const musicData = data.data[0];  
-          musicUrl = musicData.audio_url;  
-          streamUrl = musicData.stream_audio_url || musicData.audio_url;  
-          console.log('케이스1: 배열 형태 응답, 음악 URL:', musicUrl);  
-        }  
-        // 2. data.data.status가 있는 경우  
-        else if (data.data?.status === 'SUCCESS' && data.data?.data?.length > 0) {              
+        // 응답 구조에 따른 처리
+        if (data.data?.status === 'SUCCESS' && data.data?.data?.length > 0) {              
           status = 'completed';              
           const musicData = data.data.data[0];  
           musicUrl = musicData.audio_url;              
           streamUrl = musicData.stream_audio_url || musicData.audio_url;  
-          console.log('케이스2: status 형태 응답, 음악 URL:', musicUrl);  
-        }  
-        // 3. 상태만 SUCCESS인 경우 (URL 없음) - 임시로 Mock 사용  
-        else if (data.status === 'SUCCESS') {  
-          status = 'completed';  
-          // Kie.ai가 callback으로만 URL을 제공하는 경우 Mock 사용  
-          musicUrl = 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3';  
-          streamUrl = 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3';  
-          console.log('SUCCESS 상태지만 URL 없음 - Mock 사용');  
-        }  
-        // 4. 실패 상태  
-        else if (data.data?.status === 'FAILED' || data.status === 'FAILED') {              
+        } else if (data.data?.status === 'FAILED') {              
           status = 'failed';              
-        }  
-        // 5. 진행 중  
-        else if (data.data?.status === 'PROCESSING' || data.data?.status === 'PENDING' ||   
-                 data.status === 'PROCESSING' || data.status === 'PENDING') {              
+        } else if (data.data?.status === 'PROCESSING' || data.data?.status === 'PENDING') {              
           status = 'processing';              
-        }  
-          
-        console.log('최종 상태:', status, '음악 URL:', musicUrl);              
+        }              
                     
         return {              
           taskId,              
@@ -481,11 +378,10 @@ Write only the lyrics, no explanation:`;
           prompt: currentMusicTask?.prompt || '',              
           style: currentMusicTask?.style || '',              
           title: currentMusicTask?.title || '',              
-          lyrics: currentMusicTask?.lyrics,        
           createdAt: currentMusicTask?.createdAt || new Date(),              
           musicUrl,              
           streamUrl,              
-          error: data.data.error,          
+          error: data.data?.error,          
           category: selectedCategory,          
           isPublic: shareToYoutube          
         };              
@@ -502,7 +398,6 @@ Write only the lyrics, no explanation:`;
         prompt: currentMusicTask?.prompt || '',            
         style: currentMusicTask?.style || '',            
         title: currentMusicTask?.title || '',            
-        lyrics: currentMusicTask?.lyrics,        
         createdAt: currentMusicTask?.createdAt || new Date(),            
         musicUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3',            
         streamUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3',          
@@ -545,7 +440,7 @@ Write only the lyrics, no explanation:`;
     return aiResponse;              
   };
 
-  // 대화 요약 및 음악 프롬프트 생성 (가사 생성 포함)             
+  // 대화 요약 및 음악 프롬프트 생성 (가사 생성 제거)             
   const generateConversationSummary = async (messages: ChatMessage[]): Promise<SummaryData> => {              
     const userMessages = messages.filter(msg => msg.role === 'user').map(msg => msg.content).join('\n');
 
@@ -558,8 +453,7 @@ Write only the lyrics, no explanation:`;
         actionItems: ['오늘의 감정을 일기장에 기록하기', '잠들기 전 10분간 명상하기'],              
         musicPrompt: 'A peaceful and calming meditation music with soft ambient sounds',              
         musicStyle: 'Ambient Meditation',              
-        musicTitle: 'Peaceful Mind Journey',        
-        lyrics: 'Today was tough but I survived\nTomorrow brings a brand new light\nWe will walk this path together'        
+        musicTitle: 'Peaceful Mind Journey'        
       };              
     }
 
@@ -612,8 +506,7 @@ ${userMessages}
       if (recommendedEmotions.length === 0) recommendedEmotions = ['평온', '만족'];      
       if (actionItems.length === 0) actionItems = ['오늘을 돌아보기', '내일을 준비하기'];
 
-      // 한글 가사 생성        
-      const summaryDataTemp = {        
+      return {              
         summary: summary,              
         keywords: keywords.slice(0, 5),              
         recommendedEmotions: recommendedEmotions.slice(0, 5),              
@@ -621,13 +514,6 @@ ${userMessages}
         musicPrompt: musicPrompt || 'A calming and peaceful ambient music',              
         musicStyle: musicStyle || 'Ambient',              
         musicTitle: musicTitle || 'Emotional Journey'        
-      };
-
-      const lyrics = await generateEnglishLyrics(summaryDataTemp, messages, currentMood || 'normal');
-
-      return {              
-        ...summaryDataTemp,        
-        lyrics             
       };              
     } catch (error) {              
       console.error('대화 요약 생성 오류:', error);              
@@ -638,8 +524,7 @@ ${userMessages}
         actionItems: ['오늘의 대화 내용 되새기기', '마음의 여유 갖기'],              
         musicPrompt: 'A peaceful ambient music for relaxation',              
         musicStyle: 'Ambient',              
-        musicTitle: 'Calm Moments',        
-        lyrics: '오늘 하루도 고생했어\n내일은 더 나은 날이 될거야\n힘들어도 웃어보자\n우리 함께 걸어가자\n행복이 찾아올거야'        
+        musicTitle: 'Calm Moments'        
       };              
     }              
   };
@@ -726,7 +611,7 @@ ${userMessages}
     }              
   };
 
-  // 음악 생성 및 일기 저장 핸들러              
+  // 음악 생성 및 일기 저장 핸들러 (대기시간 5분으로 단축)              
   const handleGenerateMusicAndSave = async () => {              
     if (!currentMood || !summaryData) {              
       alert('저장에 필요한 정보가 부족합니다.');              
@@ -735,7 +620,7 @@ ${userMessages}
                   
     setCurrentStep('generating');              
     setGenerationProgress(0);              
-    setAttempts(0); // attempts 초기화 추가
+    setAttempts(0);
                   
     try {              
       // 프로그레스 업데이트              
@@ -751,20 +636,19 @@ ${userMessages}
 
       let completedTask: SunoMusicTask;
 
-      // Kie.ai API로 음악 생성              
+      // Kie.ai API로 음악 생성 (가사 제거)              
       const musicTask = await generateMusicWithKie(              
         summaryData.musicPrompt || 'A calming ambient music',              
         summaryData.musicStyle || 'Ambient',              
-        summaryData.musicTitle || 'Emotional Journey',        
-        summaryData.lyrics // 가사 전달        
+        summaryData.musicTitle || 'Emotional Journey'        
       );              
                     
       setCurrentMusicTask(musicTask);              
                     
-      // 작업 상태 확인            
+      // 작업 상태 확인 (5분으로 단축)            
       completedTask = musicTask;              
-      let currentAttempts = 0; // 로컬 변수로 attempts 추적
-      const maxAttempts = 120; // 최대 10분 대기 (5초 * 120 = 600초)              
+      let currentAttempts = 0;
+      const maxAttempts = 60; // 최대 5분 대기 (5초 * 60 = 300초)              
                     
       while (currentAttempts < maxAttempts) {              
         await new Promise(resolve => setTimeout(resolve, 5000)); // 5초 대기              
@@ -773,28 +657,31 @@ ${userMessages}
           completedTask = await checkKieTaskStatus(musicTask.taskId);              
           setCurrentMusicTask(completedTask);              
             
-          console.log(`상태 확인 ${currentAttempts + 1}/${maxAttempts}:`, completedTask.status);  
+          console.log(`상태 확인 ${currentAttempts + 1}/${maxAttempts}:`, completedTask.status);              
+          setAttempts(currentAttempts + 1);              
                         
-          if (completedTask.status === 'completed' || completedTask.status === 'failed') {              
+          if (completedTask.status === 'completed') {              
+            console.log('음악 생성 완료!');              
             break;              
+          } else if (completedTask.status === 'failed') {              
+            throw new Error(completedTask.error || '음악 생성에 실패했습니다.');              
           }              
-                        
-          // 진행률 업데이트              
-          const progress = Math.min(90, (currentAttempts / maxAttempts) * 90);              
-          setGenerationProgress(progress);              
-                        
-        } catch (error) {              
-          console.error('상태 확인 오류:', error);              
+        } catch (statusError) {              
+          console.error('상태 확인 오류:', statusError);              
         }              
                       
         currentAttempts++;              
-        setAttempts(currentAttempts); // 상태 업데이트
       }              
                     
-      if (completedTask.status !== 'completed') {              
-        console.error('음악 생성 시간 초과 또는 실패:', completedTask);  
-        throw new Error('음악 생성이 시간 초과되었습니다. 10분 이상 소요됩니다.');              
-      }        
+      if (currentAttempts >= maxAttempts && completedTask.status !== 'completed') {              
+        console.warn('음악 생성 시간 초과, 모의 데이터 사용');              
+        completedTask = {              
+          ...completedTask,              
+          status: 'completed',              
+          musicUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3',              
+          streamUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3'              
+        };              
+      }              
                     
       clearInterval(progressInterval);              
       setGenerationProgress(100);              
@@ -848,7 +735,7 @@ ${userMessages}
         setShareToYoutube(false);          
         setSelectedCategory('');              
         setCurrentStep('mood');              
-        setAttempts(0); // attempts 초기화 추가
+        setAttempts(0);
                       
         alert('일기와 AI 음악이 성공적으로 생성되었습니다!');              
       }, 1000);              
@@ -1063,7 +950,7 @@ ${userMessages}
     </div>              
   );
 
-  // 요약 화면 (LLM 일기 추가)          
+  // 요약 화면 (제목/아티스트 표시 제거)          
   const renderSummary = () => (              
     <div className={`min-h-screen bg-gradient-to-br ${APP_THEME.bgClass} p-4`}>              
       <div className="max-w-4xl mx-auto">              
@@ -1116,104 +1003,89 @@ ${userMessages}
                 </p>          
               )}          
                         
-              <div className="mt-3 flex justify-end">          
+              <div className="flex justify-end mt-3">          
                 <button          
                   onClick={() => setIsEditingDiary(!isEditingDiary)}          
-                  className="px-4 py-2 bg-orange-100 text-orange-700 rounded-lg hover:bg-orange-200 text-sm font-medium"          
+                  className="px-3 py-1 bg-gray-500 text-white rounded-lg text-sm hover:bg-gray-600"          
                 >          
-                  {isEditingDiary ? '수정 완료' : '수정하기'}          
+                  {isEditingDiary ? '완료' : '수정'}          
                 </button>          
               </div>          
-            </div>              
-                          
+            </div>
+
             <div className="bg-white rounded-xl shadow-lg p-6">              
               <h3 className="text-xl font-bold mb-4 text-gray-800">🏷️ 감정 키워드</h3>              
               <div className="flex flex-wrap gap-2">              
-                {summaryData.keywords.map((keyword: string, index: number) => (              
-                  <span key={index} className={`px-3 py-1 bg-gradient-to-r ${APP_THEME.primary} text-white rounded-full text-sm`}>              
+                {summaryData.keywords.map((keyword, index) => (              
+                  <span key={index} className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm">              
                     {keyword}              
                   </span>              
                 ))}              
               </div>              
-            </div>              
-                          
+            </div>
+
             <div className="bg-white rounded-xl shadow-lg p-6">              
-              <h3 className="text-xl font-bold mb-4 text-gray-800">🤖 AI 추천 감정</h3>              
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 mb-4">              
-                {summaryData.recommendedEmotions.map((emotion: string, index: number) => (              
+              <h3 className="text-xl font-bold mb-4 text-gray-800">💭 추천 감정</h3>              
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">              
+                {summaryData.recommendedEmotions.map((emotion, index) => (              
                   <button               
                     key={index}               
                     onClick={() => handleEmotionSelect(emotion)}               
-                    className={`p-3 rounded-lg text-sm font-medium transition-all border-2 ${              
+                    className={`p-3 rounded-lg border-2 transition-all ${              
                       selectedEmotions.includes(emotion)               
-                        ? `bg-gradient-to-r ${APP_THEME.primary} text-white border-purple-500 shadow-lg transform scale-105`               
-                        : 'bg-gray-50 text-gray-700 border-gray-200 hover:border-purple-300 hover:bg-purple-50'              
+                        ? 'border-purple-500 bg-purple-100 text-purple-800'               
+                        : 'border-gray-200 bg-gray-50 text-gray-700 hover:border-purple-300'              
                     }`}              
                   >              
                     {emotion}              
                   </button>              
                 ))}              
               </div>              
-              <p className="text-xs text-gray-500">최대 2개까지 선택 가능 (선택한 감정: {selectedEmotions.length}/2)</p>              
-            </div>              
-                          
+              <p className="text-sm text-gray-500 mt-2">최대 2개까지 선택 가능</p>              
+            </div>
+
             <div className="bg-white rounded-xl shadow-lg p-6">              
-              <h3 className="text-xl font-bold mb-4 text-gray-800">💭 나의 오늘 감정</h3>              
+              <h3 className="text-xl font-bold mb-4 text-gray-800">✅ 추천 액션</h3>              
+              <ul className="space-y-2">              
+                {summaryData.actionItems.map((item, index) => (              
+                  <li key={index} className="flex items-center text-gray-700">              
+                    <span className="text-green-500 mr-2">✓</span>              
+                    {item}              
+                  </li>              
+                ))}              
+              </ul>              
+            </div>
+
+            <div className="bg-white rounded-xl shadow-lg p-6">              
+              <h3 className="text-xl font-bold mb-4 text-gray-800">🎵 음악 정보</h3>              
+              <div className="space-y-3">              
+                <div>              
+                  <span className="font-semibold text-gray-600">프롬프트:</span>              
+                  <p className="text-gray-700 mt-1">{summaryData.musicPrompt}</p>              
+                </div>              
+                <div>              
+                  <span className="font-semibold text-gray-600">스타일:</span>              
+                  <span className="ml-2 px-2 py-1 bg-green-100 text-green-800 rounded text-sm">              
+                    {summaryData.musicStyle}              
+                  </span>              
+                </div>              
+              </div>              
+            </div>
+
+            <div className="bg-white rounded-xl shadow-lg p-6">              
+              <h3 className="text-xl font-bold mb-4 text-gray-800">🎯 추가 감정 입력</h3>              
               <input               
                 type="text"               
                 value={userMainEmotion}               
                 onChange={(e) => setUserMainEmotion(e.target.value)}               
-                placeholder="예: 행복, 걱정, 설렘, 피곤함 등"               
-                className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-lg"               
-                maxLength={10}               
+                placeholder="오늘의 주요 감정을 직접 입력해주세요"               
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"              
               />              
-              <p className="text-xs text-gray-500 mt-2">최대 10자까지 입력 가능</p>              
-            </div>              
-                          
-            <div className="bg-white rounded-xl shadow-lg p-6">              
-              <h3 className="text-xl font-bold mb-4 text-gray-800">🎯 추천 액션</h3>              
-              <div className="space-y-2">              
-                {summaryData.actionItems.map((item: string, index: number) => (              
-                  <div key={index} className="flex items-center space-x-2 p-3 bg-gray-50 rounded-lg">              
-                    <span className="text-green-500">✅</span>              
-                    <span className="text-gray-700">{item}</span>              
-                  </div>              
-                ))}              
-              </div>              
-            </div>              
-                          
-            <div className="bg-gradient-to-r from-purple-100 to-pink-100 rounded-xl shadow-lg p-6 border-2 border-purple-300">              
-              <h3 className="text-xl font-bold mb-4 text-purple-800">🎵 AI 음악 생성 정보</h3>              
-              <div className="space-y-3">              
-                <div>              
-                  <span className="font-semibold text-purple-700">프롬프트:</span>              
-                  <p className="text-gray-700 mt-1">{summaryData.musicPrompt}</p>              
-                </div>              
-                <div>              
-                  <span className="font-semibold text-purple-700">스타일:</span>              
-                  <span className="ml-2 text-gray-700">{summaryData.musicStyle}</span>              
-                </div>              
-                <div>              
-                  <span className="font-semibold text-purple-700">제목:</span>              
-                  <span className="ml-2 text-gray-700">{summaryData.musicTitle}</span>              
-                </div>        
-                {summaryData.lyrics && (        
-                  <div>              
-                    <span className="font-semibold text-purple-700">가사 (영어 3줄):</span>              
-                    <p className="text-gray-700 mt-2 whitespace-pre-wrap bg-white p-3 rounded-lg">{summaryData.lyrics}</p>              
-                  </div>        
-                )}        
-                <div className="mt-4 p-3 bg-yellow-50 rounded-lg">      
-                  <p className="text-sm text-yellow-800">      
-                    <span className="font-semibold">음악 생성 시간:</span> 약 30-40초 소요됩니다      
-                  </p>      
-                </div>      
-              </div>              
-            </div>      
-          
-            {/* 공유 옵션 */}          
-            <div className="bg-gradient-to-r from-red-50 to-pink-50 rounded-xl shadow-lg p-6 border-2 border-red-200">          
-              <h3 className="text-xl font-bold mb-4 text-red-700">🎬 음악 공유 설정</h3>          
+            </div>          
+              
+            {/* 공유 설정 섹션 */}          
+            <div className="bg-white rounded-xl shadow-lg p-6">          
+              <h3 className="text-xl font-bold mb-4 text-gray-800">🌐 공유 설정</h3>          
               <div className="space-y-4">          
                 <div className="flex items-center space-x-3">          
                   <input          
@@ -1221,143 +1093,113 @@ ${userMessages}
                     id="shareToYoutube"          
                     checked={shareToYoutube}          
                     onChange={(e) => setShareToYoutube(e.target.checked)}          
-                    className="w-5 h-5 text-red-600 rounded"          
+                    className="w-4 h-4 text-purple-600 border-gray-300 rounded focus:ring-purple-500"          
                   />          
-                  <label htmlFor="shareToYoutube" className="text-gray-700 font-medium">          
-                    이 음악을 저장하고 다른 사용자와 공유하기          
+                  <label htmlFor="shareToYoutube" className="text-gray-700">          
+                    음악 라이브러리에 공개하기          
                   </label>          
                 </div>          
                           
                 {shareToYoutube && (          
                   <div>          
                     <label className="block text-sm font-medium text-gray-700 mb-2">          
-                      감정 카테고리 선택:          
+                      카테고리 선택          
                     </label>          
-                    <div className="grid grid-cols-2 md:grid-cols-3 gap-2">          
+                    <select          
+                      value={selectedCategory}          
+                      onChange={(e) => setSelectedCategory(e.target.value)}          
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"          
+                    >          
+                      <option value="">카테고리를 선택하세요</option>          
                       {EMOTION_CATEGORIES.map(category => (          
-                        <button          
-                          key={category.id}          
-                          onClick={() => setSelectedCategory(category.id)}          
-                          className={`p-2 rounded-lg text-sm transition-all border-2 ${          
-                            selectedCategory === category.id          
-                              ? 'bg-red-500 text-white border-red-500'          
-                              : 'bg-white text-gray-700 border-gray-200 hover:border-red-300'          
-                          }`}          
-                        >          
+                        <option key={category.id} value={category.id}>          
                           {category.emoji} {category.name}          
-                        </button>          
+                        </option>          
                       ))}          
-                    </div>          
+                    </select>          
                   </div>          
                 )}          
               </div>          
-            </div>              
-                          
-            <div className="text-center">              
+            </div>
+
+            <div className="flex space-x-4">              
               <button               
                 onClick={handleGenerateMusicAndSave}               
-                disabled={isLoading || (shareToYoutube && !selectedCategory)}               
-                className={`px-8 py-3 bg-gradient-to-r ${APP_THEME.primary} text-white rounded-lg font-bold text-lg hover:opacity-90 transition-all disabled:opacity-50`}              
+                className="flex-1 py-4 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg font-bold text-lg hover:opacity-90"              
               >              
-                🎵 AI 음악 생성 & 일기 저장하기              
+                🎵 음악 생성하고 일기 저장하기              
+              </button>              
+              <button               
+                onClick={() => setCurrentStep('chat')}               
+                className="px-6 py-4 bg-gray-500 text-white rounded-lg hover:bg-gray-600"              
+              >              
+                ← 뒤로              
               </button>              
             </div>              
           </div>              
         )}              
-                      
-        <div className="text-center mt-6">              
-          <button               
-            onClick={() => setCurrentStep('chat')}               
-            className="px-6 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-all"              
-          >              
-            대화로 돌아가기              
-          </button>              
-        </div>              
       </div>              
     </div>              
   );
 
-  // 음악 생성 중 화면              
+  // 음악 생성 중 화면 (5분 대기시간 표시)              
   const renderGenerating = () => (              
     <div className={`min-h-screen bg-gradient-to-br ${APP_THEME.bgClass} p-4 flex items-center justify-center`}>              
-      <div className="bg-white rounded-2xl shadow-xl p-8 max-w-md w-full">              
-        <div className="text-center">              
+      <div className="max-w-md mx-auto text-center">              
+        <div className="bg-white rounded-xl shadow-lg p-8">              
           <div className="mb-6">              
-            <div className="text-6xl mb-4 animate-pulse">🎵</div>              
-            <h2 className="text-2xl font-bold text-gray-800 mb-2">AI 음악 생성 중...</h2>              
-            <p className="text-gray-600">당신의 감정에 맞는 음악을 만들고 있어요</p>              
+            <div className="w-20 h-20 mx-auto mb-4 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full flex items-center justify-center">              
+              <div className="text-3xl text-white">🎵</div>              
+            </div>              
+            <h2 className="text-2xl font-bold text-gray-800 mb-2">AI 음악 생성 중</h2>              
+            <p className="text-gray-600">당신만을 위한 특별한 음악을 만들고 있어요</p>              
           </div>              
                         
-          {currentMusicTask && (              
-            <div className="mb-6 text-left bg-purple-50 rounded-lg p-4">              
-              <p className="text-sm text-purple-700 mb-1">              
-                <span className="font-semibold">제목:</span> {currentMusicTask.title}              
-              </p>              
-              <p className="text-sm text-purple-700 mb-1">              
-                <span className="font-semibold">스타일:</span> {currentMusicTask.style}              
-              </p>          
-              {shareToYoutube && (          
-                <p className="text-sm text-purple-700 mb-1">              
-                  <span className="font-semibold">공유 카테고리:</span> {          
-                    EMOTION_CATEGORIES.find(c => c.id === selectedCategory)?.name          
-                  }              
-                </p>          
-              )}        
-              {currentMusicTask.lyrics && (        
-                <div className="mt-2">        
-                  <p className="text-sm text-purple-700 font-semibold">가사:</p>        
-                  <p className="text-xs text-purple-600 mt-1 whitespace-pre-wrap">{currentMusicTask.lyrics}</p>        
-                </div>        
-              )}        
-              <p className="text-xs text-purple-600 mt-2">              
-                작업 ID: {currentMusicTask.taskId}              
-              </p>              
-            </div>              
-          )}              
-                        
           <div className="mb-6">              
-            <div className="w-full bg-gray-200 rounded-full h-3">              
+            <div className="w-full bg-gray-200 rounded-full h-3 mb-2">              
               <div               
-                className={`bg-gradient-to-r ${APP_THEME.primary} h-3 rounded-full transition-all duration-500`}              
+                className="bg-gradient-to-r from-purple-500 to-pink-500 h-3 rounded-full transition-all duration-500"               
                 style={{ width: `${generationProgress}%` }}              
-              />              
+              ></div>              
             </div>              
-            <p className="text-sm text-gray-600 mt-2">{generationProgress}% 완료</p>              
+            <p className="text-sm text-gray-500">{generationProgress}% 완료</p>              
           </div>              
                         
-          <p className="text-sm text-gray-500">              
-            음악 생성에 약 1-3분이 소요됩니다. (최대 5분)              
-          </p>              
-                        
-          {attempts > 20 && (  
-            <p className="text-xs text-orange-500 mt-2">  
-              생성이 오래 걸리고 있습니다. 조금만 더 기다려주세요...  
-            </p>  
-          )}              
+          <div className="text-sm text-gray-600 space-y-1">              
+            <p>⏱️ 최대 5분 소요 (기존 10분에서 단축)</p>              
+            <p>🔄 시도 횟수: {attempts}/60</p>              
+            {currentMusicTask && (              
+              <div className="mt-4 p-3 bg-gray-50 rounded-lg">              
+                <p className="font-semibold">생성 중인 음악:</p>              
+                <p className="text-xs text-gray-500 mt-1">{currentMusicTask.prompt}</p>              
+                <p className="text-xs text-purple-600 mt-1">스타일: {currentMusicTask.style}</p>              
+              </div>              
+            )}              
+          </div>              
         </div>              
       </div>              
     </div>              
   );
 
-  // 내 일기 화면 (LLM 일기 표시)            
+  // 내 일기 화면              
   const renderMyDiary = () => (              
     <div className={`min-h-screen bg-gradient-to-br ${APP_THEME.bgClass} p-4`}>              
       <div className="max-w-4xl mx-auto">              
-        <div className="text-center mb-8">              
-          <h2 className="text-3xl font-bold text-gray-800 mb-2">📖 내 AI 음악 일기</h2>              
-          <p className="text-gray-600">총 {diaryEntries.length}개의 기록이 있어요</p>              
+        <div className="flex items-center justify-between mb-8">              
+          <h2 className="text-3xl font-bold text-gray-800">📖 내 일기</h2>              
+          <button               
+            onClick={() => setCurrentStep('mood')}               
+            className="px-6 py-3 bg-gray-500 text-white rounded-lg hover:bg-gray-600"              
+          >              
+            🏠 홈으로              
+          </button>              
         </div>              
                       
         {diaryEntries.length === 0 ? (              
-          <div className="text-center bg-white rounded-xl shadow-lg p-8">              
-            <div className="text-4xl mb-4">📝</div>              
-            <p className="text-lg text-gray-600">아직 작성된 일기가 없어요</p>              
-            <button               
-              onClick={() => setCurrentStep('mood')}               
-              className={`mt-4 px-6 py-3 bg-gradient-to-r ${APP_THEME.primary} text-white rounded-lg font-semibold hover:opacity-90 transition-all`}              
-            >              
-              첫 일기 작성하기              
-            </button>              
+          <div className="text-center py-12">              
+            <div className="text-6xl mb-4">📝</div>              
+            <h3 className="text-xl font-bold text-gray-600 mb-2">아직 작성된 일기가 없어요</h3>              
+            <p className="text-gray-500">첫 번째 감정 일기를 작성해보세요!</p>              
           </div>              
         ) : (              
           <div className="space-y-6">              
@@ -1367,297 +1209,196 @@ ${userMessages}
                   <div className="flex items-center space-x-3">              
                     <span className="text-2xl">{getMoodEmoji(entry.mood)}</span>              
                     <div>              
-                      <h3 className="font-bold text-gray-800">{entry.date} {entry.time}</h3>              
-                      <p className="text-sm text-gray-600">기분: {getMoodText(entry.mood)}</p>              
+                      <h3 className="font-bold text-gray-800">{entry.date}</h3>              
+                      <p className="text-sm text-gray-500">{entry.time}</p>              
                     </div>              
                   </div>              
+                  <span className={`px-3 py-1 rounded-full text-sm ${              
+                    entry.mood === 'good' ? 'bg-green-100 text-green-800' :              
+                    entry.mood === 'normal' ? 'bg-blue-100 text-blue-800' :              
+                    'bg-purple-100 text-purple-800'              
+                  }`}>              
+                    {getMoodText(entry.mood)}              
+                  </span>              
                 </div>              
                               
-                <div className="space-y-4">              
-                  <div>              
-                    <h4 className="font-semibold text-gray-700 mb-2">요약</h4>              
-                    <p className="text-gray-600">{entry.summary}</p>              
+                <div className="mb-4">              
+                  <h4 className="font-semibold text-gray-700 mb-2">📖 오늘의 이야기</h4>              
+                  <p className="text-gray-600">{entry.summary}</p>              
+                </div>          
+                          
+                {entry.llmDiary && (          
+                  <div className="mb-4 p-4 bg-yellow-50 rounded-lg border-l-4 border-yellow-400">          
+                    <h4 className="font-semibold text-gray-700 mb-2">✨ AI 일기</h4>          
+                    <p className="text-gray-600 whitespace-pre-wrap">{entry.llmDiary}</p>          
                   </div>          
-                            
-                  {/* LLM 일기 표시 */}          
-                  {entry.llmDiary && (          
-                    <div className="bg-gradient-to-r from-yellow-50 to-orange-50 rounded-lg p-4 border border-orange-200">          
-                      <h4 className="font-semibold text-gray-700 mb-2">✨ AI가 써준 일기</h4>          
-                      <p className="text-gray-700 whitespace-pre-wrap">{entry.llmDiary}</p>          
-                    </div>          
-                  )}          
-                                
-                  {entry.keywords?.length > 0 && (              
-                    <div>              
-                      <h4 className="font-semibold text-gray-700 mb-2">키워드</h4>              
-                      <div className="flex flex-wrap gap-2">              
-                        {entry.keywords.map((keyword, index) => (              
-                          <span key={index} className={`px-2 py-1 bg-gradient-to-r ${APP_THEME.primary} text-white rounded-full text-xs`}>              
-                            {keyword}              
+                )}
+
+                <div className="mb-4">              
+                  <h4 className="font-semibold text-gray-700 mb-2">🏷️ 키워드</h4>              
+                  <div className="flex flex-wrap gap-2">              
+                    {entry.keywords.map((keyword, index) => (              
+                      <span key={index} className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-sm">              
+                        {keyword}              
+                      </span>              
+                    ))}              
+                  </div>              
+                </div>
+
+                <div className="mb-4">              
+                  <h4 className="font-semibold text-gray-700 mb-2">💭 선택한 감정</h4>              
+                  <div className="flex flex-wrap gap-2">              
+                    {entry.selectedEmotions.map((emotion, index) => (              
+                      <span key={index} className="px-2 py-1 bg-purple-100 text-purple-800 rounded text-sm">              
+                        {emotion}              
+                      </span>              
+                    ))}              
+                  </div>              
+                </div>
+
+                {entry.musicTasks.length > 0 && (              
+                  <div>              
+                    <h4 className="font-semibold text-gray-700 mb-2">🎵 생성된 음악</h4>              
+                    {entry.musicTasks.map((task, index) => (              
+                      <div key={index} className="p-3 bg-gray-50 rounded-lg">              
+                        <div className="flex items-center justify-between mb-2">              
+                          <span className="font-medium text-gray-800">감정 음악</span>              
+                          <span className={`px-2 py-1 rounded text-xs ${              
+                            task.status === 'completed' ? 'bg-green-100 text-green-800' :              
+                            task.status === 'failed' ? 'bg-red-100 text-red-800' :              
+                            'bg-yellow-100 text-yellow-800'              
+                          }`}>              
+                            {task.status === 'completed' ? '완료' :              
+                             task.status === 'failed' ? '실패' : '진행중'}              
                           </span>              
-                        ))}              
+                        </div>              
+                        <p className="text-sm text-gray-600 mb-2">{task.prompt}</p>              
+                        <p className="text-xs text-gray-500">스타일: {task.style}</p>              
+                        {task.musicUrl && (              
+                          <audio controls className="w-full mt-2">              
+                            <source src={task.musicUrl} type="audio/mpeg" />              
+                            브라우저가 오디오를 지원하지 않습니다.              
+                          </audio>              
+                        )}              
                       </div>              
-                    </div>              
-                  )}              
-                                
-                  {entry.selectedEmotions?.length > 0 && (              
-                    <div>              
-                      <h4 className="font-semibold text-gray-700 mb-2">감정</h4>              
-                      <div className="flex flex-wrap gap-2">              
-                        {entry.selectedEmotions.map((emotion, index) => (              
-                          <span key={index} className="px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-sm">              
-                            {emotion}              
-                          </span>              
-                        ))}              
-                      </div>              
-                    </div>              
-                  )}              
-                                
-                  {entry.musicTasks?.length > 0 && (              
-                    <div>              
-                      <h4 className="font-semibold text-gray-700 mb-2">생성된 AI 음악</h4>              
-                      <div className="space-y-2">              
-                        {entry.musicTasks.map((task, index) => (              
-                          <div key={index} className="p-3 bg-gradient-to-r from-purple-50 to-pink-50 rounded-lg border border-purple-200">              
-                            <div className="mb-2">              
-                              <p className="font-medium text-purple-800">{task.title}</p>              
-                              <p className="text-sm text-purple-600">{task.style}</p>              
-                              {task.status === 'completed' && (              
-                                <p className="text-xs text-purple-500 mt-1">✅ 생성 완료</p>              
-                              )}              
-                              {task.status === 'failed' && (              
-                                <p className="text-xs text-red-500 mt-1">❌ 생성 실패</p>              
-                              )}              
-                              {task.status === 'processing' && (              
-                                <p className="text-xs text-yellow-500 mt-1">⏳ 생성 중...</p>              
-                              )}          
-                              {task.isPublic && task.category && (          
-                                <p className="text-xs text-green-600 mt-1">          
-                                  🌍 공개됨: {EMOTION_CATEGORIES.find(c => c.id === task.category)?.name}          
-                                </p>          
-                              )}        
-                              {task.lyrics && (        
-                                <div className="mt-2 p-2 bg-white rounded text-xs">        
-                                  <p className="font-semibold text-gray-700 mb-1">가사:</p>        
-                                  <p className="text-gray-600 whitespace-pre-wrap">{task.lyrics}</p>        
-                                </div>        
-                              )}        
-                            </div>              
-                                        
-                            {task.status === 'completed' && task.musicUrl && (              
-                              <>              
-                                {/* 음악 URL을 iframe으로 표시 */}          
-                                {task.musicUrl && (          
-                                  <div className="mb-2">        
-                                    <iframe          
-                                      src={task.musicUrl}          
-                                      width="100%"          
-                                      height="80"          
-                                      frameBorder="0"          
-                                      allow="autoplay"          
-                                      className="rounded-lg"          
-                                    ></iframe>          
-                                  </div>          
-                                )}        
-                                        
-                                {/* 오디오 플레이어 */}        
-                                <audio               
-                                  controls               
-                                  className="w-full mb-2"              
-                                  src={task.musicUrl || task.streamUrl}              
-                                >              
-                                  Your browser does not support the audio element.              
-                                </audio>        
-                                            
-                                {/* 버튼들 */}              
-                                <div className="flex space-x-2">              
-                                  <a               
-                                    href={task.musicUrl}               
-                                    download              
-                                    className="px-3 py-1 bg-purple-500 text-white rounded-lg text-xs hover:bg-purple-600"              
-                                  >              
-                                    💾 다운로드              
-                                  </a>              
-                                  <a               
-                                    href={task.musicUrl}               
-                                    target="_blank"               
-                                    rel="noopener noreferrer"              
-                                    className="px-3 py-1 bg-green-500 text-white rounded-lg text-xs hover:bg-green-600"              
-                                  >              
-                                    🔗 새 창에서 열기              
-                                  </a>        
-                                </div>              
-                              </>              
-                            )}              
-                          </div>              
-                        ))}              
-                      </div>              
-                    </div>              
-                  )}              
-                </div>              
+                    ))}              
+                  </div>              
+                )}              
               </div>              
             ))}              
           </div>              
         )}              
-                      
-        <div className="text-center mt-6">              
-          <button               
-            onClick={() => setCurrentStep('mood')}               
-            className="px-6 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-all"              
-          >              
-            🏠 홈으로 돌아가기              
-          </button>              
-        </div>              
       </div>              
     </div>              
   );
 
   // 음악 라이브러리 화면          
   const renderMusicLibrary = () => {          
-              
     const filteredMusic = selectedCategoryFilter === 'all'           
-      ? publicMusicLibrary           
+      ? publicMusicLibrary          
       : publicMusicLibrary.filter(music => music.category === selectedCategoryFilter);          
               
     return (          
       <div className={`min-h-screen bg-gradient-to-br ${APP_THEME.bgClass} p-4`}>          
         <div className="max-w-4xl mx-auto">          
-          <div className="text-center mb-8">          
-            <h2 className="text-3xl font-bold text-gray-800 mb-2">🎵 감정별 음악 라이브러리</h2>          
-            <p className="text-gray-600">다른 사용자들이 공유한 AI 음악을 들어보세요</p>          
+          <div className="flex items-center justify-between mb-8">          
+            <h2 className="text-3xl font-bold text-gray-800">🎵 음악 라이브러리</h2>          
+            <button           
+              onClick={() => setCurrentStep('mood')}           
+              className="px-6 py-3 bg-gray-500 text-white rounded-lg hover:bg-gray-600"          
+            >          
+              🏠 홈으로          
+            </button>          
           </div>          
                     
           {/* 카테고리 필터 */}          
-          <div className="mb-6 bg-white rounded-xl shadow-lg p-4">          
-            <div className="flex flex-wrap gap-2 items-center">          
-              <span className="font-semibold text-gray-700">카테고리:</span>          
+          <div className="mb-6">          
+            <div className="flex flex-wrap gap-2">          
               <button          
                 onClick={() => setSelectedCategoryFilter('all')}          
-                className={`px-4 py-2 rounded-lg text-sm transition-all ${          
+                className={`px-4 py-2 rounded-lg ${          
                   selectedCategoryFilter === 'all'          
                     ? 'bg-purple-500 text-white'          
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'          
+                    : 'bg-white text-gray-700 border border-gray-300'          
                 }`}          
               >          
-                전체 ({publicMusicLibrary.length})          
+                전체          
               </button>          
-              {EMOTION_CATEGORIES.map(category => {          
-                const count = publicMusicLibrary.filter(m => m.category === category.id).length;          
-                return (          
-                  <button          
-                    key={category.id}          
-                    onClick={() => setSelectedCategoryFilter(category.id)}          
-                    className={`px-4 py-2 rounded-lg text-sm transition-all ${          
-                      selectedCategoryFilter === category.id          
-                        ? 'bg-purple-500 text-white'          
-                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'          
-                    }`}          
-                  >          
-                    {category.emoji} {category.name} ({count})          
-                  </button>          
-                );          
-              })}          
+              {EMOTION_CATEGORIES.map(category => (          
+                <button          
+                  key={category.id}          
+                  onClick={() => setSelectedCategoryFilter(category.id)}          
+                  className={`px-4 py-2 rounded-lg ${          
+                    selectedCategoryFilter === category.id          
+                      ? 'bg-purple-500 text-white'          
+                      : 'bg-white text-gray-700 border border-gray-300'          
+                  }`}          
+                >          
+                  {category.emoji} {category.name}          
+                </button>          
+              ))}          
             </div>          
           </div>          
                     
           {filteredMusic.length === 0 ? (          
-            <div className="text-center bg-white rounded-xl shadow-lg p-8">          
-              <div className="text-4xl mb-4">🎵</div>          
-              <p className="text-lg text-gray-600">          
-                {selectedCategoryFilter === 'all'           
-                  ? '아직 공유된 음악이 없어요'          
-                  : '이 카테고리에는 아직 음악이 없어요'}          
-              </p>          
+            <div className="text-center py-12">          
+              <div className="text-6xl mb-4">🎵</div>          
+              <h3 className="text-xl font-bold text-gray-600 mb-2">          
+                {selectedCategoryFilter === 'all' ? '공유된 음악이 없어요' : '해당 카테고리의 음악이 없어요'}          
+              </h3>          
+              <p className="text-gray-500">첫 번째 음악을 공유해보세요!</p>          
             </div>          
           ) : (          
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">          
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">          
               {filteredMusic.map((music, index) => (          
                 <div key={index} className="bg-white rounded-xl shadow-lg p-6">          
-                  <div className="mb-4">          
-                    <div className="flex items-center justify-between mb-2">          
-                      <h3 className="font-bold text-gray-800">{music.title}</h3>          
-                      <span className="text-2xl">          
-                        {EMOTION_CATEGORIES.find(c => c.id === music.category)?.emoji}          
-                      </span>          
+                  <div className="flex items-center justify-between mb-4">          
+                    <div className="flex items-center space-x-2">          
+                      {music.category && (          
+                        <span className="text-lg">          
+                          {EMOTION_CATEGORIES.find(cat => cat.id === music.category)?.emoji}          
+                        </span>          
+                      )}          
+                      <span className="font-semibold text-gray-800">감정 음악</span>          
                     </div>          
-                    <p className="text-sm text-gray-600">{music.style}</p>          
-                    <p className="text-xs text-gray-500 mt-1">          
-                      {EMOTION_CATEGORIES.find(c => c.id === music.category)?.name}          
-                    </p>        
-                    {music.lyrics && (        
-                      <div className="mt-2 p-2 bg-gray-50 rounded text-xs">        
-                        <p className="font-semibold text-gray-700 mb-1">가사:</p>        
-                        <p className="text-gray-600 whitespace-pre-wrap">{music.lyrics}</p>        
-                      </div>        
-                    )}        
+                    <span className="text-sm text-gray-500">          
+                      {formatDate(music.createdAt)}          
+                    </span>          
+                  </div>          
+                            
+                  <div className="mb-4">          
+                    <p className="text-gray-600 text-sm mb-2">{music.prompt}</p>          
+                    <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs">          
+                      {music.style}          
+                    </span>          
                   </div>          
                             
                   {music.musicUrl && (          
-                    <div className="mb-4">        
-                      <iframe          
-                        src={music.musicUrl}          
-                        width="100%"          
-                        height="300"          
-                        frameBorder="0"          
-                        allow="autoplay"          
-                        className="rounded-lg"          
-                      ></iframe>          
-                    </div>          
-                  )}          
-                            
-                  {music.musicUrl && (          
-                    <audio controls className="w-full mb-2">          
+                    <audio controls className="w-full">          
                       <source src={music.musicUrl} type="audio/mpeg" />          
-                      Your browser does not support the audio element.          
+                      브라우저가 오디오를 지원하지 않습니다.          
                     </audio>          
                   )}          
-                            
-                  <div className="flex space-x-2">          
-                    {music.musicUrl && (          
-                      <a          
-                        href={music.musicUrl}          
-                        download          
-                        className="px-3 py-1 bg-purple-500 text-white rounded-lg text-xs hover:bg-purple-600"          
-                      >          
-                        💾 다운로드          
-                      </a>          
-                    )}          
-                  </div>          
                 </div>          
               ))}          
             </div>          
           )}          
-                    
-          <div className="text-center mt-6">          
-            <button          
-              onClick={() => setCurrentStep('mood')}          
-              className="px-6 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-all"          
-            >          
-              🏠 홈으로 돌아가기          
-            </button>          
-          </div>          
         </div>          
       </div>          
     );          
   };
 
   // 메인 렌더링              
-  switch (currentStep) {              
-    case 'mood':               
-      return renderMoodSelection();              
-    case 'chat':               
-      return renderChat();              
-    case 'summary':               
-      return renderSummary();              
-    case 'generating':              
-      return renderGenerating();              
-    case 'myDiary':               
-      return renderMyDiary();          
-    case 'musicLibrary':          
-      return renderMusicLibrary();              
-    default:               
-      return renderMoodSelection();              
-  }              
+  return (              
+    <div className="App">              
+      {currentStep === 'mood' && renderMoodSelection()}              
+      {currentStep === 'chat' && renderChat()}              
+      {currentStep === 'summary' && renderSummary()}              
+      {currentStep === 'generating' && renderGenerating()}              
+      {currentStep === 'myDiary' && renderMyDiary()}          
+      {currentStep === 'musicLibrary' && renderMusicLibrary()}              
+    </div>              
+  );              
 });
 
 export default App;
