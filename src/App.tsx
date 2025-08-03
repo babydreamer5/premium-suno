@@ -269,7 +269,7 @@ const App: React.FC = memo(() => {
           customMode: true,  
           instrumental: true,  // 가사 없는 음악으로 변경
           style: style || 'Ambient',  
-          model: "V3_5",  
+          model: "V4_5",  
           callBackUrl: process.env.NODE_ENV === 'production' 
             ? window.location.origin + "/api/callback"
             : "http://localhost:3000/api/callback",
