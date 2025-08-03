@@ -1,10 +1,23 @@
-import React, { useState, useEffect, useCallback, memo } from 'react';
+import React, { useState, useEffect, memo } from 'react';
 
 // 타입 정의              
 interface ChatMessage {              
   role: 'user' | 'assistant';              
   content: string;              
   timestamp: Date;              
+  musicRequest?: MusicSearchResult; // 음악 요청 결과 추가
+}
+
+interface MusicSearchResult {
+  videoId: string;
+  title: string;
+  channelTitle: string;
+  thumbnail: string;
+  publishedAt: string;
+  description: string;
+  isOfficialVideo: boolean;
+  relevanceScore?: number;
+  searchIndex?: number;
 }
 
 interface SunoMusicTask {              
@@ -44,7 +57,10 @@ interface SummaryData {
   musicPrompt?: string;              
   musicStyle?: string;              
   musicTitle?: string;              
-  llmDiary?: string;          // LLM 일기        
+  llmDiary?: string;          // LLM 일기
+  lyrics?: string;            // 생성된 가사
+  musicSearchQuery?: string;  // 음악 검색어
+  recommendedMusic?: MusicSearchResult; // 추천 음악 결과
 }
 
 // 상수 정의              
@@ -70,8 +86,8 @@ const MUSIC_GENRES = [
 ];
 
 const EMOTION_CATEGORIES = [          
-  { id: 'sad', name: '우울할 때', emoji: '😔' },          
   { id: 'happy', name: '기쁠 때', emoji: '😊' },          
+  { id: 'sad', name: '우울할 때', emoji: '😔' },          
   { id: 'anxious', name: '불안할 때', emoji: '😰' },          
   { id: 'angry', name: '화날 때', emoji: '😠' },          
   { id: 'lonely', name: '외로울 때', emoji: '😢' },          
@@ -100,8 +116,6 @@ const App: React.FC = memo(() => {
   const [currentInput, setCurrentInput] = useState("");              
   const [isLoading, setIsLoading] = useState(false);              
   const [conversationCount, setConversationCount] = useState(0);              
-  const [currentMusicTask, setCurrentMusicTask] = useState<SunoMusicTask | null>(null);              
-  const [generationProgress, setGenerationProgress] = useState(0);              
   const [selectedMusicGenres, setSelectedMusicGenres] = useState<string[]>([]);          
   const [selectedDiaryStyle, setSelectedDiaryStyle] = useState<string>('simple');          
   const [editingDiary, setEditingDiary] = useState<string>('');          
@@ -110,8 +124,12 @@ const App: React.FC = memo(() => {
   const [selectedCategory, setSelectedCategory] = useState<string>('');          
   const [publicMusicLibrary, setPublicMusicLibrary] = useState<SunoMusicTask[]>([]);        
   const [isGeneratingMusic, setIsGeneratingMusic] = useState(false);
-  const [attempts, setAttempts] = useState(0);
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>('all');
+  
+  // YouTube 음악 검색 관련 상태
+  const [pendingMusicRequest, setPendingMusicRequest] = useState<string | null>(null);
+  const [showMusicConfirmation, setShowMusicConfirmation] = useState(false);
+  const [searchingMusic, setSearchingMusic] = useState(false);
 
   // localStorage에서 데이터 로드              
   useEffect(() => {              
@@ -155,6 +173,267 @@ const App: React.FC = memo(() => {
       case 'bad': return '나쁨';              
       default: return '선택 안함';              
     }              
+  };
+
+  // 개선된 음악 요청 감지 함수 (오탐지 방지)
+  const detectMusicRequest = (message: string): string | null => {
+    console.log('음악 요청 감지 시작:', message);
+    
+    // 일반 대화 키워드 (음악 요청이 아닌 경우)
+    const generalConversationKeywords = [
+      '잘 보냄', '잘보냄', '잘 지냄', '잘지냄', '괜찮', '좋아', '나빠', '힘들어',
+      '피곤해', '졸려', '배고파', '심심해', '재미있어', '슬퍼', '기뻐', '화나',
+      '스트레스', '걱정', '고민', '생각', '일상', '하루', '오늘', '어제', '내일',
+      '학교', '회사', '집', '친구', '가족', '연인', '사랑', '이별', '만남',
+      '공부', '시험', '숙제', '과제', '업무', '일', '휴식', '잠', '꿈'
+    ];
+    
+    const lowerMessage = message.toLowerCase();
+    
+    // 일반 대화인 경우 음악 요청이 아님
+    const isGeneralConversation = generalConversationKeywords.some(keyword => 
+      lowerMessage.includes(keyword.toLowerCase())
+    );
+    
+    if (isGeneralConversation) {
+      console.log('일반 대화로 판단, 음악 요청 아님');
+      return null;
+    }
+    
+    // 명확한 음악 요청 키워드만 감지
+    const explicitMusicKeywords = [
+      '들려줘', '틀어줘', '재생해줘', '찾아줘', '플레이해줘',
+      '듣고싶어', '듣고 싶어', '들어보고 싶어', '들어보고싶어',
+      'play', 'listen', 'find music', 'search music'
+    ];
+    
+    const hasExplicitKeyword = explicitMusicKeywords.some(keyword => 
+      lowerMessage.includes(keyword.toLowerCase())
+    );
+    
+    console.log('명확한 음악 키워드 감지:', hasExplicitKeyword);
+    
+    if (!hasExplicitKeyword) {
+      // 아티스트명 + 곡명 패턴도 더 엄격하게 체크
+      const strictArtistSongPatterns = [
+        /([가-힣a-zA-Z0-9\s]+)의\s*([가-힣a-zA-Z0-9\s]+)를?\s*(들려줘|틀어줘|재생해줘|찾아줘|플레이)/,
+        /([가-힣a-zA-Z0-9\s]+)의\s*([가-힣a-zA-Z0-9\s]+)을?\s*(들려줘|틀어줘|재생해줘|찾아줘|플레이)/,
+        /([a-zA-Z\s]+)\s+(official|music video|mv)\s*(들려줘|틀어줘|재생해줘|찾아줘|플레이)?/i
+      ];
+      
+      for (const pattern of strictArtistSongPatterns) {
+        const match = message.match(pattern);
+        if (match && match[1] && match[2]) {
+          const artist = match[1].trim();
+          const song = match[2].trim();
+          console.log('엄격한 아티스트-곡명 패턴 감지:', artist, song);
+          return `${artist} ${song}`;
+        }
+      }
+      
+      return null;
+    }
+    
+    // 명확한 음악 요청 키워드가 있는 경우에만 처리
+    const musicPatterns = [
+      // "아티스트의 곡명을/를 들려줘" 패턴
+      /([가-힣a-zA-Z0-9\s]+)의\s*([가-힣a-zA-Z0-9\s]+)을?\s*(들려줘|틀어줘|재생해줘|찾아줘)/,
+      /([가-힣a-zA-Z0-9\s]+)의\s*([가-힣a-zA-Z0-9\s]+)를?\s*(들려줘|틀어줘|재생해줘|찾아줘)/,
+      
+      // "곡명 들려줘" 패턴 (더 엄격하게)
+      /([가-힣a-zA-Z0-9\s]{2,})\s*(들려줘|틀어줘|재생해줘|찾아줘)/,
+      
+      // 영어 패턴
+      /play\s+([a-zA-Z0-9\s]{3,})/i,
+      /listen\s+to\s+([a-zA-Z0-9\s]{3,})/i,
+      /find\s+([a-zA-Z0-9\s]{3,})\s*(music|song)/i
+    ];
+    
+    for (const pattern of musicPatterns) {
+      const match = message.match(pattern);
+      if (match) {
+        console.log('음악 패턴 매칭 성공:', pattern, match);
+        
+        // 아티스트-곡명 패턴인 경우
+        if (match[3] && match[1] && match[2]) {
+          const artist = match[1].trim();
+          const song = match[2].trim();
+          console.log('아티스트-곡명 추출:', artist, song);
+          return `${artist} ${song}`;
+        }
+        
+        // 단일 곡명 패턴인 경우 (최소 3글자 이상)
+        const extracted = match[1] || match[2];
+        if (extracted && extracted.trim().length >= 3) {
+          const cleanedExtracted = extracted.trim()
+            .replace(/^(의|을|를|이|가)\s*/, '')
+            .replace(/\s*(의|을|를|이|가)$/, '');
+          
+          console.log('곡명 추출:', cleanedExtracted);
+          return cleanedExtracted;
+        }
+      }
+    }
+    
+    console.log('음악 요청 감지 실패');
+    return null;
+  };
+
+  // 개선된 YouTube API 음악 검색 (영어 팝송 우선순위 개선)
+  const searchYouTubeMusic = async (query: string): Promise<MusicSearchResult[]> => {
+    try {
+      console.log('YouTube 음악 검색 시작:', query);
+      
+      // 영어 아티스트 감지 (팝송 가능성 높음)
+      const isEnglishArtist = /^[a-zA-Z\s]+/.test(query.trim());
+      console.log('영어 아티스트 감지:', isEnglishArtist);
+      
+      // 다중 검색 전략 사용 (영어 팝송은 영어 검색 우선)
+      let searchQueries: string[];
+      
+      if (isEnglishArtist) {
+        // 영어 아티스트인 경우 영어 검색어 우선
+        searchQueries = [
+          `${query} official music video`,           // 영어 공식 뮤비 우선
+          `${query} music video`,                    // 영어 일반 뮤비
+          `${query} official`,                       // 영어 공식 영상
+          `${query} live performance`,               // 라이브 공연
+          query,                                     // 원본 검색어
+          `${query} 공식 뮤비`,                      // 한국어 검색 (후순위)
+          `${query} official mv`                     // 한국식 표현 (후순위)
+        ];
+      } else {
+        // 한국어 아티스트인 경우 기존 검색 전략
+        searchQueries = [
+          `${query} official music video`,           // 공식 뮤비 우선
+          `${query} official mv`,                    // 한국식 뮤비 표현
+          `${query} music video`,                    // 일반 뮤비
+          `${query} official`,                       // 공식 영상
+          query                                      // 원본 검색어
+        ];
+      }
+      
+      let allResults: MusicSearchResult[] = [];
+      
+      // 각 검색어로 순차 검색
+      for (let i = 0; i < searchQueries.length && allResults.length < 10; i++) {
+        const searchQuery = searchQueries[i];
+        console.log(`검색 시도 ${i + 1}:`, searchQuery);
+        
+        try {
+          const response = await fetch(
+            `https://www.googleapis.com/youtube/v3/search?` +
+            `part=snippet&` +
+            `q=${encodeURIComponent(searchQuery)}&` +
+            `type=video&` +
+            `videoCategoryId=10&` + // 음악 카테고리
+            `order=relevance&` +
+            `publishedAfter=2020-01-01T00:00:00Z&` + // 2020년 이후
+            `maxResults=5&` +
+            `key=${process.env.REACT_APP_YOUTUBE_API_KEY}`
+          );
+
+          if (!response.ok) {
+            console.warn(`검색 ${i + 1} 실패:`, response.status);
+            continue;
+          }
+
+          const data = await response.json();
+          console.log(`검색 ${i + 1} 결과:`, data.items?.length || 0, '개');
+
+          if (data.items && data.items.length > 0) {
+            const searchResults = data.items.map((item: any) => {
+              const title = item.snippet.title;
+              const channelTitle = item.snippet.channelTitle;
+              const description = item.snippet.description || '';
+              
+              // 향상된 공식 뮤비 판별 로직
+              const officialKeywords = [
+                'official', 'music video', 'mv', 'records', 'entertainment',
+                'vevo', 'official video', 'official mv', '공식', '뮤직비디오'
+              ];
+              
+              const isOfficialVideo = 
+                officialKeywords.some(keyword => 
+                  title.toLowerCase().includes(keyword.toLowerCase()) ||
+                  channelTitle.toLowerCase().includes(keyword.toLowerCase()) ||
+                  description.toLowerCase().includes(keyword.toLowerCase())
+                );
+
+              // 관련성 점수 계산
+              const queryWords = query.toLowerCase().split(' ');
+              const titleWords = title.toLowerCase().split(' ');
+              const relevanceScore = queryWords.reduce((score, word) => {
+                return score + (titleWords.some((titleWord: string) => 
+                  titleWord.includes(word) || word.includes(titleWord)
+                ) ? 1 : 0);
+              }, 0);
+
+              return {
+                videoId: item.id.videoId,
+                title: title,
+                channelTitle: channelTitle,
+                thumbnail: item.snippet.thumbnails.medium?.url || item.snippet.thumbnails.default?.url,
+                publishedAt: item.snippet.publishedAt,
+                description: description,
+                isOfficialVideo: isOfficialVideo,
+                relevanceScore: relevanceScore,
+                searchIndex: i // 검색 순서 기록
+              };
+            });
+
+            // 중복 제거 (같은 videoId)
+            const newResults = searchResults.filter((newResult: MusicSearchResult) => 
+              !allResults.some((existingResult: MusicSearchResult) => existingResult.videoId === newResult.videoId)
+            );
+
+            allResults.push(...newResults);
+          }
+        } catch (searchError) {
+          console.warn(`검색 ${i + 1} 오류:`, searchError);
+          continue;
+        }
+      }
+
+      console.log('전체 검색 결과:', allResults.length, '개');
+
+      if (allResults.length === 0) {
+        return [];
+      }
+
+      // 결과 정렬 및 필터링
+      const sortedResults = allResults
+        .sort((a, b) => {
+          // 1순위: 공식 뮤비 여부
+          if (a.isOfficialVideo && !b.isOfficialVideo) return -1;
+          if (!a.isOfficialVideo && b.isOfficialVideo) return 1;
+          
+          // 2순위: 관련성 점수
+          if ((a.relevanceScore || 0) !== (b.relevanceScore || 0)) {
+            return (b.relevanceScore || 0) - (a.relevanceScore || 0);
+          }
+          
+          // 3순위: 검색 순서 (공식 검색어 우선)
+          if ((a.searchIndex || 0) !== (b.searchIndex || 0)) {
+            return (a.searchIndex || 0) - (b.searchIndex || 0);
+          }
+          
+          // 4순위: 최신순
+          return new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime();
+        })
+        .slice(0, 5); // 상위 5개만 반환
+
+      console.log('최종 정렬된 결과:', sortedResults.map(r => ({
+        title: r.title,
+        isOfficial: r.isOfficialVideo,
+        relevance: r.relevanceScore
+      })));
+
+      return sortedResults;
+    } catch (error) {
+      console.error('YouTube 검색 오류:', error);
+      return [];
+    }
   };
 
   // OpenAI API 직접 호출            
@@ -239,178 +518,56 @@ const App: React.FC = memo(() => {
     }          
   };
 
-  // Kie.ai API로 음악 생성 (수정된 버전)  
-  const generateMusicWithKie = async (prompt: string, style: string, title: string): Promise<SunoMusicTask> => {              
-    try {              
-      console.log('Kie.ai API 호출 시작:', { prompt, style, title });              
-                    
-      // API 키가 없으면 모의 데이터 반환          
-      if (!process.env.REACT_APP_KIE_API_KEY) {            
-        console.warn('Kie.ai API 키가 없어 모의 데이터를 사용합니다.');            
-        return {            
-          taskId: `mock-${Date.now()}`,            
-          status: 'pending',            
-          prompt,            
-          style,            
-          title,            
-          createdAt: new Date()            
-        };            
-      }            
-                  
-      // Kie.ai API 호출 - 수정된 파라미터 (가사 제거, instrumental로 변경)
-      const response = await fetch('https://api.kie.ai/api/v1/generate', {              
-        method: 'POST',              
-        headers: {              
-          'Authorization': `Bearer ${process.env.REACT_APP_KIE_API_KEY}`,  
-          'Content-Type': 'application/json'            
-        },              
-        body: JSON.stringify({              
-          prompt: prompt,  // 음악 프롬프트만 사용
-          customMode: true,  
-          instrumental: true,  // 가사 없는 음악으로 변경
-          style: style || 'Ambient',  
-          model: "V4_5",  
-          callBackUrl: process.env.NODE_ENV === 'production' 
-            ? window.location.origin + "/api/callback"
-            : "http://localhost:3000/api/callback",
-          negativeTags: "Heavy Metal, Death Metal, Screamo, Vocals, Singing"  // 보컬 제외
-        })              
-      });
-
-      if (!response.ok) {          
-        const errorData = await response.json();          
-        console.error('Kie.ai API 에러:', errorData);          
-        throw new Error(`API 오류: ${response.status} ${response.statusText}`);          
-      }
-
-      const data = await response.json();              
-      console.log('Kie.ai API 응답:', data);  
-                    
-      if (data.code === 200 && data.data) {  
-        const taskId = data.data.task_id || data.data.taskId;  
-          
-        if (taskId) {              
-          return {              
-            taskId: taskId,  
-            status: 'pending',              
-            prompt,              
-            style,              
-            title,              
-            createdAt: new Date()              
-          };  
-        }  
-      }  
-        
-      throw new Error(`API 응답 오류: ${data.msg || '알 수 없는 오류'}`);  
-        
-    } catch (error) {              
-      console.error('Kie 음악 생성 오류:', error);              
-                  
-      // 오류 시 모의 데이터 반환            
-      return {            
-        taskId: `mock-${Date.now()}`,            
-        status: 'pending',            
-        prompt,            
-        style,            
-        title,            
-        createdAt: new Date()            
-      };            
-    }              
-  };
-
-  // Kie.ai 작업 상태 체크 (수정된 버전)  
-  const checkKieTaskStatus = async (taskId: string): Promise<SunoMusicTask> => {              
-    // 모의 taskId인 경우 모의 응답 반환              
-    if (taskId.startsWith('mock-')) {              
-      console.log('모의 작업 상태 반환');              
-      return {              
-        taskId,              
-        status: 'completed',              
-        prompt: currentMusicTask?.prompt || '',              
-        style: currentMusicTask?.style || '',              
-        title: currentMusicTask?.title || '',              
-        createdAt: currentMusicTask?.createdAt || new Date(),              
-        musicUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3',              
-        streamUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3',          
-        category: selectedCategory,          
-        isPublic: shareToYoutube          
-      };              
-    }
-
-    try {              
-      console.log('상태 확인 시작, taskId:', taskId);  
-        
-      // Kie.ai 상태 확인 API 호출
-      const response = await fetch(`https://api.kie.ai/api/v1/generate/record-info?taskId=${taskId}`, {              
-        method: 'GET',              
-        headers: {              
-          'Authorization': `Bearer ${process.env.REACT_APP_KIE_API_KEY}`            
-        }              
-      });
-
-      if (!response.ok) {          
-        throw new Error(`API 오류: ${response.status} ${response.statusText}`);  
-      }
-
-      const data = await response.json();              
-      console.log('Kie.ai 상태 확인 응답:', data);  
-                  
-      if (data.code === 200) {              
-        let status: 'pending' | 'processing' | 'completed' | 'failed' = 'pending';              
-        let musicUrl: string | undefined;              
-        let streamUrl: string | undefined;              
-                    
-        // 응답 구조에 따른 처리
-        if (data.data?.status === 'SUCCESS' && data.data?.data?.length > 0) {              
-          status = 'completed';              
-          const musicData = data.data.data[0];  
-          musicUrl = musicData.audio_url;              
-          streamUrl = musicData.stream_audio_url || musicData.audio_url;  
-        } else if (data.data?.status === 'FAILED') {              
-          status = 'failed';              
-        } else if (data.data?.status === 'PROCESSING' || data.data?.status === 'PENDING') {              
-          status = 'processing';              
-        }              
-                    
-        return {              
-          taskId,              
-          status,              
-          prompt: currentMusicTask?.prompt || '',              
-          style: currentMusicTask?.style || '',              
-          title: currentMusicTask?.title || '',              
-          createdAt: currentMusicTask?.createdAt || new Date(),              
-          musicUrl,              
-          streamUrl,              
-          error: data.data?.error,          
-          category: selectedCategory,          
-          isPublic: shareToYoutube          
-        };              
-      } else {              
-        throw new Error(`API 응답 오류: ${data.msg || '작업을 찾을 수 없습니다'}`);              
-      }              
-    } catch (error) {              
-      console.error('Kie.ai 작업 상태 확인 오류:', error);              
-                  
-      // 개발 모드 fallback          
-      return {            
-        taskId,            
-        status: 'completed',            
-        prompt: currentMusicTask?.prompt || '',            
-        style: currentMusicTask?.style || '',            
-        title: currentMusicTask?.title || '',            
-        createdAt: currentMusicTask?.createdAt || new Date(),            
-        musicUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3',            
-        streamUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3',          
-        category: selectedCategory,          
-        isPublic: shareToYoutube          
-      };            
-    }              
-  };
-
-  // AI 응답 생성              
+  // AI 응답 생성 (음악 요청 감지 및 사용자 피드백 인정 포함)              
   const getAIResponse = async (userMessage: string, conversationHistory: ChatMessage[]) => {              
     const conversationNum = conversationCount + 1;              
     setConversationCount(conversationNum);
+
+    // 사용자 피드백 인정 (공식 뮤비가 아니라는 지적)
+    const feedbackKeywords = [
+      '공식 뮤비가 아니', '공식뮤비가 아니', '공식이 아니', '공식 영상이 아니',
+      '이건 공식이 아니', '공식 아니', '공식 영상 아니', '공식 뮤비 아니',
+      '틀렸', '잘못', '아니야', '맞지 않', '다른 곡', '엉뚱한'
+    ];
+    
+    const lowerMessage = userMessage.toLowerCase();
+    const isFeedback = feedbackKeywords.some(keyword => 
+      lowerMessage.includes(keyword.toLowerCase())
+    );
+    
+    if (isFeedback) {
+      return `맞아요! 죄송해요. 🙏 제가 잘못 찾았네요. 다시 정확한 곡명이나 아티스트명을 알려주시면 더 정확하게 찾아드릴게요! 💜`;
+    }
+
+    // 음악 요청 감지 및 바로 검색
+    const musicRequest = detectMusicRequest(userMessage);
+    if (musicRequest) {
+      try {
+        setSearchingMusic(true);
+        const searchResults = await searchYouTubeMusic(musicRequest);
+        
+        if (searchResults.length > 0) {
+          const bestResult = searchResults[0];
+          
+          const musicMessage: ChatMessage = {
+            role: 'assistant',
+            content: `🎵 "${musicRequest}"를 찾았어요! 재생해드릴게요.`,
+            timestamp: new Date(),
+            musicRequest: bestResult
+          };
+          
+          setChatMessages(prev => [...prev, musicMessage]);
+          return `🎵 "${musicRequest}"를 찾았어요! 재생해드릴게요.`;
+        } else {
+          return `죄송해요. "${musicRequest}"를 찾지 못했어요. 다른 곡명이나 아티스트명으로 다시 시도해보세요! 🎵`;
+        }
+      } catch (error) {
+        console.error('음악 검색 오류:', error);
+        return `죄송해요. 음악 검색 중 문제가 발생했어요. 다시 시도해주세요! 🎵`;
+      } finally {
+        setSearchingMusic(false);
+      }
+    }
 
     const userGenres = selectedMusicGenres.map(genreId => {              
       const genre = MUSIC_GENRES.find(g => g.id === genreId);              
@@ -432,12 +589,68 @@ const App: React.FC = memo(() => {
 응답 스타일:              
 - 친근하고 공감적인 톤 (존댓말 사용)              
 - 간결하고 자연스러운 응답 (1-2문장)              
-- 답변 시작이나 중간에 귀여운 이모지 하나씩 추가`;
+- 답변 시작이나 중간에 귀여운 이모지 하나씩 추가
+- 음악 검색 결과에 대해서는 "공식 뮤비"라는 표현을 사용하지 말 것`;
 
     const messages = [...conversationHistory.slice(-5), { role: 'user', content: userMessage }];              
     const aiResponse = await callOpenAI(messages, systemPrompt);
 
     return aiResponse;              
+  };
+
+  // 음악 검색 확인 처리
+  const handleMusicConfirmation = async (confirmed: boolean) => {
+    setShowMusicConfirmation(false);
+    
+    if (confirmed && pendingMusicRequest) {
+      setSearchingMusic(true);
+      
+      try {
+        const searchResults = await searchYouTubeMusic(pendingMusicRequest);
+        
+        if (searchResults.length > 0) {
+          const bestResult = searchResults[0]; // 가장 관련성 높은 결과
+          
+          const musicMessage: ChatMessage = {
+            role: 'assistant',
+            content: `🎵 "${pendingMusicRequest}"를 찾았어요! 재생해드릴게요.`,
+            timestamp: new Date(),
+            musicRequest: bestResult
+          };
+          
+          setChatMessages(prev => [...prev, musicMessage]);
+        } else {
+          const noResultMessage: ChatMessage = {
+            role: 'assistant',
+            content: `😅 죄송해요. "${pendingMusicRequest}"를 찾지 못했어요. 다른 검색어로 시도해보시겠어요?`,
+            timestamp: new Date()
+          };
+          
+          setChatMessages(prev => [...prev, noResultMessage]);
+        }
+      } catch (error) {
+        console.error('음악 검색 오류:', error);
+        const errorMessage: ChatMessage = {
+          role: 'assistant',
+          content: '음악 검색 중 오류가 발생했어요. 다시 시도해주세요. 💜',
+          timestamp: new Date()
+        };
+        
+        setChatMessages(prev => [...prev, errorMessage]);
+      } finally {
+        setSearchingMusic(false);
+      }
+    } else {
+      const cancelMessage: ChatMessage = {
+        role: 'assistant',
+        content: '알겠어요! 다른 이야기를 나눠볼까요? 😊',
+        timestamp: new Date()
+      };
+      
+      setChatMessages(prev => [...prev, cancelMessage]);
+    }
+    
+    setPendingMusicRequest(null);
   };
 
   // 대화 요약 및 음악 프롬프트 생성 (가사 생성 제거)             
@@ -466,45 +679,62 @@ ${userMessages}
 선호 장르: ${selectedMusicGenres.join(', ')}
 
 분석 요청:              
-1. 대화 내용을 바탕으로 오늘 있었던 일을 2-4줄로 요약              
+1. 대화 내용을 바탕으로 "오늘은"으로 시작하여 오늘 있었던 일을 2-4줄로 요약 (~해요 체 사용)              
 2. 대화에서 느껴진 감정 키워드 5개 추출              
 3. AI가 분석한 세부 감정 5개 추천              
 4. 실행 가능한 액션 아이템 2개 제안              
-5. Suno AI 음악 생성을 위한 영어 프롬프트 생성 (감정과 상황을 반영한 구체적인 설명)              
+5. YouTube 음악 검색을 위한 한국어 검색어 생성 (감정과 상황을 반영한 구체적인 설명)              
 6. 음악 스타일 추천 (사용자 선호 장르 고려)              
-7. 음악 제목 추천 (영어)
+7. 음악 제목 추천 (한국어)
+8. 대화 내용을 바탕으로 감정을 담은 가사 4줄 생성 (한국어)
 
 응답 형식:              
-요약: [요약 내용]              
+요약: 오늘은 [요약 내용]해요.              
 감정키워드: #키워드1, #키워드2, #키워드3, #키워드4, #키워드5              
 추천감정: 감정1, 감정2, 감정3, 감정4, 감정5              
 액션아이템: 아이템1 | 아이템2              
-음악프롬프트: [영어로 작성된 구체적인 음악 설명]              
-음악스타일: [영어 스타일명]              
-음악제목: [영어 제목]`;
+음악검색어: [한국어로 작성된 구체적인 음악 검색어]              
+음악스타일: [한국어 스타일명]              
+음악제목: [한국어 제목]
+가사: [4줄의 감정적인 가사]`;
 
     try {              
       const result = await callOpenAI([], systemPrompt);              
       const lines = result.split('\n');              
                     
       let summary = '', keywords: string[] = [], recommendedEmotions: string[] = [],               
-          actionItems: string[] = [], musicPrompt = '', musicStyle = '', musicTitle = '';              
+          actionItems: string[] = [], musicPrompt = '', musicStyle = '', musicTitle = '',
+          lyrics = '', musicSearchQuery = '';              
                     
       lines.forEach((line: string) => {              
         if (line.startsWith('요약:')) summary = line.replace('요약:', '').trim();              
         else if (line.startsWith('감정키워드:')) keywords = line.replace('감정키워드:', '').trim().split(',').map((k: string) => k.trim());              
         else if (line.startsWith('추천감정:')) recommendedEmotions = line.replace('추천감정:', '').trim().split(',').map((e: string) => e.trim());              
         else if (line.startsWith('액션아이템:')) actionItems = line.replace('액션아이템:', '').trim().split('|').map((a: string) => a.trim());              
-        else if (line.startsWith('음악프롬프트:')) musicPrompt = line.replace('음악프롬프트:', '').trim();              
+        else if (line.startsWith('음악검색어:')) musicSearchQuery = line.replace('음악검색어:', '').trim();              
         else if (line.startsWith('음악스타일:')) musicStyle = line.replace('음악스타일:', '').trim();              
-        else if (line.startsWith('음악제목:')) musicTitle = line.replace('음악제목:', '').trim();              
+        else if (line.startsWith('음악제목:')) musicTitle = line.replace('음악제목:', '').trim();
+        else if (line.startsWith('가사:')) lyrics = line.replace('가사:', '').trim();              
       });
 
       // 기본값 보장      
-      if (!summary) summary = '오늘의 일상을 나누었어요.';      
+      if (!summary) summary = '오늘은 일상을 나누었어요.';      
       if (keywords.length === 0) keywords = ['#일상', '#감정'];      
       if (recommendedEmotions.length === 0) recommendedEmotions = ['평온', '만족'];      
       if (actionItems.length === 0) actionItems = ['오늘을 돌아보기', '내일을 준비하기'];
+
+      // 음악 검색 실행
+      let recommendedMusic: MusicSearchResult | undefined;
+      if (musicSearchQuery) {
+        try {
+          const searchResults = await searchYouTubeMusic(musicSearchQuery);
+          if (searchResults.length > 0) {
+            recommendedMusic = searchResults[0]; // 가장 관련성 높은 결과
+          }
+        } catch (error) {
+          console.error('추천 음악 검색 오류:', error);
+        }
+      }
 
       return {              
         summary: summary,              
@@ -513,18 +743,22 @@ ${userMessages}
         actionItems: actionItems.slice(0, 2),              
         musicPrompt: musicPrompt || 'A calming and peaceful ambient music',              
         musicStyle: musicStyle || 'Ambient',              
-        musicTitle: musicTitle || 'Emotional Journey'        
+        musicTitle: musicTitle || 'Emotional Journey',
+        lyrics: lyrics || '감정을 담은 가사를 생성하지 못했어요.',
+        musicSearchQuery: musicSearchQuery,
+        recommendedMusic: recommendedMusic
       };              
     } catch (error) {              
       console.error('대화 요약 생성 오류:', error);              
       return {              
-        summary: '대화 요약 생성 중 문제가 발생했어요.',              
+        summary: '오늘은 대화 요약 생성 중 문제가 발생했어요.',              
         keywords: ['#감정나눔', '#하루일상'],              
         recommendedEmotions: ['평온', '만족'],              
         actionItems: ['오늘의 대화 내용 되새기기', '마음의 여유 갖기'],              
         musicPrompt: 'A peaceful ambient music for relaxation',              
         musicStyle: 'Ambient',              
-        musicTitle: 'Calm Moments'        
+        musicTitle: 'Calm Moments',
+        lyrics: '오늘 하루도 수고했어요\n내일은 더 좋은 날이 될 거예요\n마음의 평안을 찾아가요\n따뜻한 위로를 전해드려요'
       };              
     }              
   };
@@ -611,142 +845,6 @@ ${userMessages}
     }              
   };
 
-  // 음악 생성 및 일기 저장 핸들러 (대기시간 5분으로 단축)              
-  const handleGenerateMusicAndSave = async () => {              
-    if (!currentMood || !summaryData) {              
-      alert('저장에 필요한 정보가 부족합니다.');              
-      return;              
-    }              
-                  
-    setCurrentStep('generating');              
-    setGenerationProgress(0);              
-    setAttempts(0);
-                  
-    try {              
-      // 프로그레스 업데이트              
-      const progressInterval = setInterval(() => {              
-        setGenerationProgress(prev => {              
-          if (prev >= 90) {              
-            clearInterval(progressInterval);              
-            return 90;              
-          }              
-          return prev + 10;              
-        });              
-      }, 500);
-
-      let completedTask: SunoMusicTask;
-
-      // Kie.ai API로 음악 생성 (가사 제거)              
-      const musicTask = await generateMusicWithKie(              
-        summaryData.musicPrompt || 'A calming ambient music',              
-        summaryData.musicStyle || 'Ambient',              
-        summaryData.musicTitle || 'Emotional Journey'        
-      );              
-                    
-      setCurrentMusicTask(musicTask);              
-                    
-      // 작업 상태 확인 (5분으로 단축)            
-      completedTask = musicTask;              
-      let currentAttempts = 0;
-      const maxAttempts = 60; // 최대 5분 대기 (5초 * 60 = 300초)              
-                    
-      while (currentAttempts < maxAttempts) {              
-        await new Promise(resolve => setTimeout(resolve, 5000)); // 5초 대기              
-                      
-        try {              
-          completedTask = await checkKieTaskStatus(musicTask.taskId);              
-          setCurrentMusicTask(completedTask);              
-            
-          console.log(`상태 확인 ${currentAttempts + 1}/${maxAttempts}:`, completedTask.status);              
-          setAttempts(currentAttempts + 1);              
-                        
-          if (completedTask.status === 'completed') {              
-            console.log('음악 생성 완료!');              
-            break;              
-          } else if (completedTask.status === 'failed') {              
-            throw new Error(completedTask.error || '음악 생성에 실패했습니다.');              
-          }              
-        } catch (statusError) {              
-          console.error('상태 확인 오류:', statusError);              
-        }              
-                      
-        currentAttempts++;              
-      }              
-                    
-      if (currentAttempts >= maxAttempts && completedTask.status !== 'completed') {              
-        console.warn('음악 생성 시간 초과, 모의 데이터 사용');              
-        completedTask = {              
-          ...completedTask,              
-          status: 'completed',              
-          musicUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3',              
-          streamUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3'              
-        };              
-      }              
-                    
-      clearInterval(progressInterval);              
-      setGenerationProgress(100);              
-                
-      // 공유 설정이 있으면 공개 라이브러리에 추가          
-      if (shareToYoutube && selectedCategory) {          
-        const updatedLibrary = [...publicMusicLibrary, completedTask];          
-        setPublicMusicLibrary(updatedLibrary);          
-        saveToLocalStorage('publicMusicLibrary', updatedLibrary);          
-      }          
-                    
-      // 일기 저장              
-      const now = new Date();              
-      const allEmotions: string[] = [];              
-                    
-      if (userMainEmotion.trim()) {              
-        allEmotions.push(userMainEmotion.trim());              
-      }              
-      allEmotions.push(...selectedEmotions);
-
-      const newEntry: DiaryEntry = {              
-        id: Date.now().toString(),              
-        date: formatDate(now),              
-        time: formatTime(now),              
-        mood: currentMood,              
-        summary: summaryData.summary || "내용 없음",          
-        llmDiary: isEditingDiary ? editingDiary : summaryData.llmDiary,              
-        keywords: summaryData.keywords || [],              
-        selectedEmotions: allEmotions,              
-        musicTasks: [completedTask],              
-        chatMessages: chatMessages,              
-        createdAt: now              
-      };
-
-      const updatedEntries = [newEntry, ...diaryEntries];              
-      setDiaryEntries(updatedEntries);              
-      saveToLocalStorage('diaryEntries', updatedEntries);              
-                    
-      // 초기화              
-      setTimeout(() => {              
-        setChatMessages([]);              
-        setCurrentMood(null);              
-        setSummaryData(null);              
-        setSelectedEmotions([]);              
-        setUserMainEmotion('');              
-        setConversationCount(0);              
-        setCurrentMusicTask(null);              
-        setGenerationProgress(0);          
-        setEditingDiary('');          
-        setIsEditingDiary(false);          
-        setShareToYoutube(false);          
-        setSelectedCategory('');              
-        setCurrentStep('mood');              
-        setAttempts(0);
-                      
-        alert('일기와 AI 음악이 성공적으로 생성되었습니다!');              
-      }, 1000);              
-                    
-    } catch (error) {              
-      console.error('음악 생성 및 저장 오류:', error);              
-      alert('음악 생성 중 문제가 발생했습니다. 다시 시도해주세요.');              
-      setCurrentStep('summary');              
-    }              
-  };
-
   // 감정 선택 핸들러              
   const handleEmotionSelect = (emotion: string) => {              
     setSelectedEmotions(prev => {              
@@ -757,18 +855,6 @@ ${userMessages}
       } else {              
         return [prev[1], emotion];              
       }              
-    });              
-  };
-
-  // 장르 선택 핸들러              
-  const handleGenreSelect = (genreId: string) => {              
-    setSelectedMusicGenres(prev => {              
-      const updated = prev.includes(genreId)               
-        ? prev.filter(id => id !== genreId)              
-        : [...prev, genreId];              
-                    
-      saveToLocalStorage('musicPreferences', updated);              
-      return updated;              
     });              
   };
 
@@ -797,18 +883,69 @@ ${userMessages}
     }          
   };
 
+  // YouTube 음악 컴포넌트
+  const MusicPlayer: React.FC<{ musicData: MusicSearchResult }> = ({ musicData }) => (
+    <div className="bg-gradient-to-r from-purple-50 to-pink-50 rounded-lg p-4 border-2 border-purple-200 mt-3">
+      <div className="flex items-start space-x-4">
+        <img 
+          src={musicData.thumbnail} 
+          alt={musicData.title}
+          className="w-24 h-18 rounded-lg object-cover"
+        />
+        <div className="flex-1">
+          <h4 className="font-semibold text-gray-800 text-sm mb-1">
+            {musicData.title}
+          </h4>
+          <p className="text-gray-600 text-xs mb-2">
+            {musicData.channelTitle}
+          </p>
+          <p className="text-gray-500 text-xs">
+            {new Date(musicData.publishedAt).getFullYear()}년
+          </p>
+        </div>
+      </div>
+      
+      <div className="mt-3">
+        <iframe
+          width="100%"
+          height="200"
+          src={`https://www.youtube.com/embed/${musicData.videoId}?autoplay=0&rel=0`}
+          title={`YouTube video: ${musicData.title}`}
+          frameBorder="0"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+          allowFullScreen
+          className="rounded-lg"
+        />
+      </div>
+      
+      <div className="mt-2 flex justify-between items-center">
+        <a 
+          href={`https://www.youtube.com/watch?v=${musicData.videoId}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-purple-600 hover:text-purple-800 text-sm"
+        >
+          🔗 YouTube에서 보기
+        </a>
+        <span className="text-gray-400 text-xs">
+          {formatTime(new Date())}
+        </span>
+      </div>
+    </div>
+  );
+
   // 기분 선택 화면              
   const renderMoodSelection = () => (              
     <div className={`min-h-screen bg-gradient-to-br ${APP_THEME.bgClass} p-4`}>              
       <div className="max-w-4xl mx-auto">              
         <div className="text-center mb-8">              
           <h1 className="text-4xl font-bold text-gray-800 mb-2">AI 감정 음악 일기</h1>              
-          <p className="text-gray-600">{AI_NAME}가 당신의 감정을 읽고 맞춤 음악을 만들어드려요</p>              
+          <p className="text-gray-600">{AI_NAME}가 당신의 감정을 읽고 맞춤 음악을 찾아드려요</p>              
         </div>              
                       
         <div className="text-center mb-8">              
           <h2 className="text-3xl font-bold text-gray-800 mb-2">오늘 기분은 어떠세요?</h2>              
-          <p className="text-gray-600">AI가 당신만을 위한 음악을 만들어드릴게요</p>              
+          <p className="text-gray-600">AI가 당신과 대화하며 음악을 추천해드릴게요</p>              
         </div>              
                       
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-8">              
@@ -871,7 +1008,7 @@ ${userMessages}
     </div>              
   );
 
-  // 채팅 화면              
+  // 채팅 화면 (음악 검색 기능 포함)              
   const renderChat = () => (              
     <div className={`min-h-screen bg-gradient-to-br ${APP_THEME.bgClass} p-4`}>              
       <div className="max-w-4xl mx-auto">              
@@ -897,8 +1034,15 @@ ${userMessages}
                   {message.role === 'assistant' && (              
                     <div className={`font-semibold mb-1 text-purple-600`}>{AI_NAME}:</div>              
                   )}              
-                  {message.content}              
-                </div>              
+                  {message.content}
+                </div>
+                
+                {/* 음악 플레이어 표시 */}
+                {message.musicRequest && (
+                  <div className="mt-2">
+                    <MusicPlayer musicData={message.musicRequest} />
+                  </div>
+                )}
               </div>              
             ))}              
             {isLoading && (              
@@ -908,6 +1052,14 @@ ${userMessages}
                   답변을 준비하고 있어요... 💜              
                 </div>              
               </div>              
+            )}
+            {searchingMusic && (
+              <div className="text-left">
+                <div className={`inline-block p-3 rounded-lg bg-white text-purple-800 border border-purple-200`}>
+                  <div className={`font-semibold mb-1 text-purple-600`}>{AI_NAME}:</div>
+                  🎵 음악을 검색하고 있어요...
+                </div>
+              </div>
             )}              
           </div>              
                         
@@ -928,16 +1080,16 @@ ${userMessages}
             >              
               전송              
             </button>              
-          </div>              
-        </div>              
-                      
+          </div>
+        </div>
+        
         <div className="flex space-x-4">              
           <button               
             onClick={handleGenerateSummary}               
             className="flex-1 py-3 bg-gradient-to-r from-blue-500 to-cyan-500 text-white rounded-lg font-semibold hover:opacity-90"               
             disabled={chatMessages.length <= 1 || isGeneratingMusic}              
           >              
-            {isGeneratingMusic ? '🎵 잠시만 기다려주세요. 준비 중입니다...' : '📝 AI 음악 생성하기'}              
+            {isGeneratingMusic ? '🎵 잠시만 기다려주세요. 준비 중입니다...' : '📝 AI 일기 생성하기'}              
           </button>              
           <button               
             onClick={() => setCurrentStep('mood')}               
@@ -945,7 +1097,7 @@ ${userMessages}
           >              
             🏠 홈으로              
           </button>              
-        </div>              
+        </div>
       </div>              
     </div>              
   );
@@ -956,7 +1108,7 @@ ${userMessages}
       <div className="max-w-4xl mx-auto">              
         <div className="text-center mb-8">              
           <h2 className="text-3xl font-bold text-gray-800 mb-2">📝 오늘의 감정 분석</h2>              
-          <p className="text-gray-600">AI가 분석한 내용을 확인하고 음악을 생성해보세요</p>              
+          <p className="text-gray-600">AI가 분석한 내용을 확인하고 일기를 저장해보세요</p>              
         </div>              
                       
         {summaryData && (              
@@ -1025,7 +1177,7 @@ ${userMessages}
             </div>
 
             <div className="bg-white rounded-xl shadow-lg p-6">              
-              <h3 className="text-xl font-bold mb-4 text-gray-800">💭 추천 감정</h3>              
+              <h3 className="text-xl font-bold mb-4 text-gray-800">🧠 AI가 대화를 하면서 감지된 나의 감정</h3>              
               <div className="grid grid-cols-2 md:grid-cols-3 gap-3">              
                 {summaryData.recommendedEmotions.map((emotion, index) => (              
                   <button               
@@ -1057,22 +1209,6 @@ ${userMessages}
             </div>
 
             <div className="bg-white rounded-xl shadow-lg p-6">              
-              <h3 className="text-xl font-bold mb-4 text-gray-800">🎵 음악 정보</h3>              
-              <div className="space-y-3">              
-                <div>              
-                  <span className="font-semibold text-gray-600">프롬프트:</span>              
-                  <p className="text-gray-700 mt-1">{summaryData.musicPrompt}</p>              
-                </div>              
-                <div>              
-                  <span className="font-semibold text-gray-600">스타일:</span>              
-                  <span className="ml-2 px-2 py-1 bg-green-100 text-green-800 rounded text-sm">              
-                    {summaryData.musicStyle}              
-                  </span>              
-                </div>              
-              </div>              
-            </div>
-
-            <div className="bg-white rounded-xl shadow-lg p-6">              
               <h3 className="text-xl font-bold mb-4 text-gray-800">🎯 추가 감정 입력</h3>              
               <input               
                 type="text"               
@@ -1081,11 +1217,31 @@ ${userMessages}
                 placeholder="오늘의 주요 감정을 직접 입력해주세요"               
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"              
               />              
-            </div>          
+            </div>
+
+            {/* AI 추천음악 섹션 */}
+            {summaryData.recommendedMusic && (
+              <div className="bg-gradient-to-r from-green-50 to-blue-50 rounded-xl shadow-lg p-6 border-2 border-green-200">
+                <h3 className="text-xl font-bold mb-4 text-gray-800">🎵 AI가 대화 속에서 감지된 추천음악</h3>
+                <MusicPlayer musicData={summaryData.recommendedMusic} />
+              </div>
+            )}
+
+            {/* 생성된 가사 섹션 */}
+            {summaryData.lyrics && (
+              <div className="bg-gradient-to-r from-pink-50 to-purple-50 rounded-xl shadow-lg p-6 border-2 border-pink-200">
+                <h3 className="text-xl font-bold mb-4 text-gray-800">🎤 대화를 통해서 생성한 가사</h3>
+                <div className="bg-white p-4 rounded-lg border border-pink-200">
+                  <p className="text-gray-700 leading-relaxed whitespace-pre-line text-center italic">
+                    {summaryData.lyrics}
+                  </p>
+                </div>
+              </div>
+            )}
               
-            {/* 공유 설정 섹션 */}          
+            {/* 나의 음악 라이브러리 설정 섹션 */}          
             <div className="bg-white rounded-xl shadow-lg p-6">          
-              <h3 className="text-xl font-bold mb-4 text-gray-800">🌐 공유 설정</h3>          
+              <h3 className="text-xl font-bold mb-4 text-gray-800">📚 나의 음악 라이브러리에 담기</h3>          
               <div className="space-y-4">          
                 <div className="flex items-center space-x-3">          
                   <input          
@@ -1096,7 +1252,7 @@ ${userMessages}
                     className="w-4 h-4 text-purple-600 border-gray-300 rounded focus:ring-purple-500"          
                   />          
                   <label htmlFor="shareToYoutube" className="text-gray-700">          
-                    음악 라이브러리에 공개하기          
+                    나의 음악 라이브러리에 저장하기          
                   </label>          
                 </div>          
                           
@@ -1104,19 +1260,22 @@ ${userMessages}
                   <div>          
                     <label className="block text-sm font-medium text-gray-700 mb-2">          
                       카테고리 선택          
-                    </label>          
-                    <select          
-                      value={selectedCategory}          
-                      onChange={(e) => setSelectedCategory(e.target.value)}          
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"          
-                    >          
-                      <option value="">카테고리를 선택하세요</option>          
-                      {EMOTION_CATEGORIES.map(category => (          
-                        <option key={category.id} value={category.id}>          
-                          {category.emoji} {category.name}          
-                        </option>          
-                      ))}          
-                    </select>          
+                    </label>
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                      {EMOTION_CATEGORIES.map(category => (
+                        <button
+                          key={category.id}
+                          onClick={() => setSelectedCategory(category.id)}
+                          className={`p-3 rounded-lg border-2 transition-all text-sm ${
+                            selectedCategory === category.id
+                              ? 'border-purple-500 bg-purple-100 text-purple-800'
+                              : 'border-gray-200 bg-gray-50 text-gray-700 hover:border-purple-300'
+                          }`}
+                        >
+                          {category.emoji} {category.name}
+                        </button>
+                      ))}
+                    </div>
                   </div>          
                 )}          
               </div>          
@@ -1124,10 +1283,52 @@ ${userMessages}
 
             <div className="flex space-x-4">              
               <button               
-                onClick={handleGenerateMusicAndSave}               
+                onClick={() => {
+                  // 간단한 일기 저장 (음악 생성 없이)
+                  const now = new Date();
+                  const allEmotions: string[] = [];
+                  
+                  if (userMainEmotion.trim()) {
+                    allEmotions.push(userMainEmotion.trim());
+                  }
+                  allEmotions.push(...selectedEmotions);
+
+                  const newEntry: DiaryEntry = {
+                    id: Date.now().toString(),
+                    date: formatDate(now),
+                    time: formatTime(now),
+                    mood: currentMood!,
+                    summary: summaryData.summary || "내용 없음",
+                    llmDiary: isEditingDiary ? editingDiary : summaryData.llmDiary,
+                    keywords: summaryData.keywords || [],
+                    selectedEmotions: allEmotions,
+                    musicTasks: [],
+                    chatMessages: chatMessages,
+                    createdAt: now
+                  };
+
+                  const updatedEntries = [newEntry, ...diaryEntries];
+                  setDiaryEntries(updatedEntries);
+                  saveToLocalStorage('diaryEntries', updatedEntries);
+
+                  // 초기화
+                  setChatMessages([]);
+                  setCurrentMood(null);
+                  setSummaryData(null);
+                  setSelectedEmotions([]);
+                  setUserMainEmotion('');
+                  setConversationCount(0);
+                  setEditingDiary('');
+                  setIsEditingDiary(false);
+                  setShareToYoutube(false);
+                  setSelectedCategory('');
+                  setCurrentStep('mood');
+
+                  alert('일기가 성공적으로 저장되었습니다!');
+                }}               
                 className="flex-1 py-4 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg font-bold text-lg hover:opacity-90"              
               >              
-                🎵 음악 생성하고 일기 저장하기              
+                📝 일기 저장하기              
               </button>              
               <button               
                 onClick={() => setCurrentStep('chat')}               
@@ -1138,45 +1339,6 @@ ${userMessages}
             </div>              
           </div>              
         )}              
-      </div>              
-    </div>              
-  );
-
-  // 음악 생성 중 화면 (5분 대기시간 표시)              
-  const renderGenerating = () => (              
-    <div className={`min-h-screen bg-gradient-to-br ${APP_THEME.bgClass} p-4 flex items-center justify-center`}>              
-      <div className="max-w-md mx-auto text-center">              
-        <div className="bg-white rounded-xl shadow-lg p-8">              
-          <div className="mb-6">              
-            <div className="w-20 h-20 mx-auto mb-4 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full flex items-center justify-center">              
-              <div className="text-3xl text-white">🎵</div>              
-            </div>              
-            <h2 className="text-2xl font-bold text-gray-800 mb-2">AI 음악 생성 중</h2>              
-            <p className="text-gray-600">당신만을 위한 특별한 음악을 만들고 있어요</p>              
-          </div>              
-                        
-          <div className="mb-6">              
-            <div className="w-full bg-gray-200 rounded-full h-3 mb-2">              
-              <div               
-                className="bg-gradient-to-r from-purple-500 to-pink-500 h-3 rounded-full transition-all duration-500"               
-                style={{ width: `${generationProgress}%` }}              
-              ></div>              
-            </div>              
-            <p className="text-sm text-gray-500">{generationProgress}% 완료</p>              
-          </div>              
-                        
-          <div className="text-sm text-gray-600 space-y-1">              
-            <p>⏱️ 최대 5분 소요 (기존 10분에서 단축)</p>              
-            <p>🔄 시도 횟수: {attempts}/60</p>              
-            {currentMusicTask && (              
-              <div className="mt-4 p-3 bg-gray-50 rounded-lg">              
-                <p className="font-semibold">생성 중인 음악:</p>              
-                <p className="text-xs text-gray-500 mt-1">{currentMusicTask.prompt}</p>              
-                <p className="text-xs text-purple-600 mt-1">스타일: {currentMusicTask.style}</p>              
-              </div>              
-            )}              
-          </div>              
-        </div>              
       </div>              
     </div>              
   );
@@ -1256,34 +1418,21 @@ ${userMessages}
                   </div>              
                 </div>
 
-                {entry.musicTasks.length > 0 && (              
-                  <div>              
-                    <h4 className="font-semibold text-gray-700 mb-2">🎵 생성된 음악</h4>              
-                    {entry.musicTasks.map((task, index) => (              
-                      <div key={index} className="p-3 bg-gray-50 rounded-lg">              
-                        <div className="flex items-center justify-between mb-2">              
-                          <span className="font-medium text-gray-800">감정 음악</span>              
-                          <span className={`px-2 py-1 rounded text-xs ${              
-                            task.status === 'completed' ? 'bg-green-100 text-green-800' :              
-                            task.status === 'failed' ? 'bg-red-100 text-red-800' :              
-                            'bg-yellow-100 text-yellow-800'              
-                          }`}>              
-                            {task.status === 'completed' ? '완료' :              
-                             task.status === 'failed' ? '실패' : '진행중'}              
-                          </span>              
-                        </div>              
-                        <p className="text-sm text-gray-600 mb-2">{task.prompt}</p>              
-                        <p className="text-xs text-gray-500">스타일: {task.style}</p>              
-                        {task.musicUrl && (              
-                          <audio controls className="w-full mt-2">              
-                            <source src={task.musicUrl} type="audio/mpeg" />              
-                            브라우저가 오디오를 지원하지 않습니다.              
-                          </audio>              
-                        )}              
-                      </div>              
-                    ))}              
-                  </div>              
-                )}              
+                {/* 대화에서 찾은 음악들 표시 */}
+                {entry.chatMessages.some(msg => msg.musicRequest) && (
+                  <div>
+                    <h4 className="font-semibold text-gray-700 mb-2">🎵 대화 중 찾은 음악</h4>
+                    <div className="space-y-3">
+                      {entry.chatMessages
+                        .filter(msg => msg.musicRequest)
+                        .map((msg, index) => (
+                          <div key={index} className="p-3 bg-gray-50 rounded-lg">
+                            <MusicPlayer musicData={msg.musicRequest!} />
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                )}
               </div>              
             ))}              
           </div>              
@@ -1394,7 +1543,6 @@ ${userMessages}
       {currentStep === 'mood' && renderMoodSelection()}              
       {currentStep === 'chat' && renderChat()}              
       {currentStep === 'summary' && renderSummary()}              
-      {currentStep === 'generating' && renderGenerating()}              
       {currentStep === 'myDiary' && renderMyDiary()}          
       {currentStep === 'musicLibrary' && renderMusicLibrary()}              
     </div>              
